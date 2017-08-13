@@ -1,6 +1,11 @@
 # Segmenter
 Universal segmenter, written by Y. Shao, Uppsala University
 
+## News
+The segmenter is applied to the MLP 2017 shared tasks (http://mlp.computing.dcu.ie/mlp2017_Shared_Task.html) and achieved outstanding results on all the datasets. (2017.8.13)
+
+# Universal Dependencies
+
 ## Training
 
 ### Segmentation:
@@ -14,3 +19,33 @@ python segmenter.py train -p ud-treebanks-conll2017/UD_English -ss -gru -cp -m s
 ## Decoding
 
 python segmenter.py tag -p ud-treebanks-conll2017/UD_English -m ss_seg_Eng -r ud-raw/en_pud.txt -opth tokenized/en_pud.txt
+
+# MLP 2017
+
+## Training
+
+### For Basque Finnish Kazakh Marathi Uyghur and Farsi
+
+python segmenter.py train -p mlp/basque -f mlp1 -cp -gru -ng 3 -m basque
+
+(The training and development sets of Basque are in directory mlp/basque)
+
+### For Vietnamese
+
+python segmenter.py train -p mlp/basque -f mlp1 -cp -gru -ng 3 -sea
+
+### For Chinese and Japanese
+
+python segmenter.py train -p mlp/tchinese -f mlp2 -cp -gru -ng 3 -m tchinese
+
+## Decoding
+
+### For Basque Finnish Kazakh Marathi Uyghur Farsi and Vietnamese
+
+python segmenter.py tag -p mlp/basque -f mlp1 -m basque -r testset/basque_raw.txt -opth segmented_mlp/basque_out.txt
+
+### For Chinese and Japanese
+
+python segmenter.py tag -p mlp/tchinese -f mlp1 -m tchinese -r testset/tchinese_raw.txt -opth segmented_mlp/tchinese_out.txt
+
+
