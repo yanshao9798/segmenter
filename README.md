@@ -22,6 +22,8 @@ python segmenter.py tag -p ud-treebanks-conll2017/UD_English -m ss_seg_Eng -r ud
 
 # MLP 2017
 
+## (Single)
+
 ## Training
 
 ### For Basque Finnish Kazakh Marathi Uyghur and Farsi
@@ -47,5 +49,21 @@ python segmenter.py tag -p mlp/basque -f mlp1 -m basque -r testset/basque_raw.tx
 ### For Chinese and Japanese
 
 python segmenter.py tag -p mlp/tchinese -f mlp1 -m tchinese -r testset/tchinese_raw.txt -opth segmented_mlp/tchinese_out.txt
+
+## (Ensemble)
+
+## Training
+
+python segmenter.py train -p mlp/basque -f mlp1 -cp -gru -ng 3 -m basque_1
+
+python segmenter.py train -p mlp/basque -f mlp1 -cp -gru -ng 3 -m basque_2
+
+python segmenter.py train -p mlp/basque -f mlp1 -cp -gru -ng 3 -m basque_3
+
+python segmenter.py train -p mlp/basque -f mlp1 -cp -gru -ng 3 -m basque_4
+
+## Decoding
+
+python segmenter.py tag -ens -p mlp/basque -f mlp1 -m basque -r testset/basque_raw.txt -opth segmented_mlp/basque_out.txt
 
 
