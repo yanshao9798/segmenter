@@ -17,6 +17,9 @@ from time import time
 
 parser = argparse.ArgumentParser(description='A Universal Tokeniser. Written by Y. Shao, Uppsala University')
 parser.add_argument('action', default='tag', choices=['train', 'test', 'tag'], help='train, test or tag')
+
+parser.add_argument('-f', '--format', default='conll', help='Data format of different tasks, conll, mlp1 or mlp2')
+
 parser.add_argument('-p', '--path', default=None, help='Path of the workstation')
 
 parser.add_argument('-t', '--train', default=None, help='File for training')
@@ -99,13 +102,13 @@ if args.action == 'train':
     f_names = os.listdir(path)
     if train_file is None or dev_file is None:
         for f_n in f_names:
-            if 'ud-train.conllu' in f_n:
+            if 'ud-train.conllu' in f_n or 'training.segd' in f_n:
                 train_file = f_n
-            elif 'ud-dev.conllu' in f_n:
+            elif 'ud-dev.conllu' in f_n or 'development.segd' in f_n:
                 dev_file = f_n
     assert train_file is not None
     is_space = True
-    if 'Chinese' in path or 'Japanese' in path:
+    if 'Chinese' in path or 'Japanese' in path or args.format == 'mlp2':
         is_space = False
     if args.sea:
         is_space = 'sea'
@@ -120,23 +123,23 @@ if args.action == 'train':
                 cat = 'gold'
 
         if dev_file is None:
-            toolbox.get_raw(path, train_file, 'raw_train.txt', cat, is_dev=False)
+            reader.get_raw(path, train_file, '/raw_train.txt', cat, is_dev=False, form=args.format, is_space=is_space)
         else:
-            toolbox.get_raw(path, train_file, 'raw_train.txt', cat)
-            toolbox.get_raw(path, dev_file, 'raw_dev.txt', cat)
+            reader.get_raw(path, train_file, '/raw_train.txt', cat, form=args.format, is_space=is_space)
+            reader.get_raw(path, dev_file, '/raw_dev.txt', cat, form=args.format, is_space=is_space)
 
     if args.reset or not os.path.isfile(path + '/tag_train.txt') or not os.path.isfile(path + '/tag_dev.txt') or \
             not os.path.isfile(path + '/tag_dev_gold.txt'):
         if dev_file is None:
             raws_train = reader.raw(path + '/raw_train.txt')
             raws_dev = reader.raw(path + '/raw_dev.txt')
-            sents_train, sents_dev = reader.conll(path + '/' + train_file, False)
+            sents_train, sents_dev = reader.gold(path + '/' + train_file, False, form=args.format, is_space=is_space)
         else:
             raws_train = reader.raw(path + '/raw_train.txt')
-            sents_train = reader.conll(path + '/' + train_file)
+            sents_train = reader.gold(path + '/' + train_file, form=args.format, is_space=is_space)
 
             raws_dev = reader.raw(path + '/raw_dev.txt')
-            sents_dev = reader.conll(path + '/' + dev_file)
+            sents_dev = reader.gold(path + '/' + dev_file, form=args.format, is_space=is_space)
 
         if is_space != 'sea':
             toolbox.raw2tags(raws_train, sents_train, path, 'tag_train.txt', ignore_space=args.ignore_space, reset=args.reset, tag_scheme=args.tags)
@@ -222,11 +225,12 @@ if args.action == 'train':
     if transducer is not None:
         transducer_graph = tf.Graph()
         with transducer_graph.as_default():
-            trans_model = Seq2seq(path + '/' + model_file + '_transducer')
-            print 'Defining transducer...'
-            trans_model.define(char_num=len(char2idx), rnn_dim=args.rnn_cell_dimension, emb_dim=args.embeddings_dimension,
-                               max_x=len(transducer[0][0]), max_y=len(transducer[1][0]))
-            trans_init = tf.initialize_all_variables()
+            with tf.variable_scope("transducer") as scope:
+                trans_model = Seq2seq(path + '/' + model_file + '_transducer')
+                print 'Defining transducer...'
+                trans_model.define(char_num=len(char2idx), rnn_dim=args.rnn_cell_dimension, emb_dim=args.embeddings_dimension,
+                                   max_x=len(transducer[0][0]), max_y=len(transducer[1][0]))
+            trans_init = tf.global_variables_initializer()
         transducer_graph.finalize()
 
     print 'Initialization....'
@@ -241,11 +245,12 @@ if args.action == 'train':
                              emb_dim=emb_dim, gru=args.gru, rnn_dim=args.rnn_cell_dimension,
                              rnn_num=args.rnn_layer_number, drop_out=args.dropout_rate, emb=emb)
             t = time()
-            model.config(optimizer=args.optimizer, decay=args.decay_rate, lr_v=args.learning_rate,
-                         momentum=args.momentum, clipping=args.clipping)
-            init = tf.initialize_all_variables()
 
-            print 'Done. Time consumed: %d seconds' % int(time() - t)
+        model.config(optimizer=args.optimizer, decay=args.decay_rate, lr_v=args.learning_rate,
+                     momentum=args.momentum, clipping=args.clipping)
+        init = tf.global_variables_initializer()
+
+        print 'Done. Time consumed: %d seconds' % int(time() - t)
 
     main_graph.finalize()
 
@@ -275,7 +280,7 @@ if args.action == 'train':
                               char2idx, trans_sess, args.epochs_trans, batch_size=10)
             sess.append(trans_sess)
             print 'Done. Time consumed: %d seconds' % int(time() - t)
-            print 'Training the main segmentor..'
+            print 'Training the main segmenter..'
         main_sess.run(init)
         print 'Initialisation...'
         print 'Done. Time consumed: %d seconds' % int(time() - t)
@@ -295,11 +300,11 @@ else:
     model_file = args.model
 
     if args.ensemble:
-        if not os.path.isfile(path + '/' + model_file + '_1_model') or not os.path.isfile(path + '/' + model_file + '_1_weights'):
+        if not os.path.isfile(path + '/' + model_file + '_1_model') or not os.path.isfile(path + '/' + model_file + '_1_weights.index'):
             raise Exception('Not any model file or weights file under the name of ' + model_file + '.')
         fin = open(path + '/' + model_file + '_1_model', 'rb')
     else:
-        if not os.path.isfile(path + '/' + model_file + '_model') or not os.path.isfile(path + '/' + model_file + '_weights'):
+        if not os.path.isfile(path + '/' + model_file + '_model') or not os.path.isfile(path + '/' + model_file + '_weights.index'):
             raise Exception('No model file or weights file under the name of ' + model_file + '.')
         fin = open(path + '/' + model_file + '_model', 'rb')
 
@@ -363,10 +368,10 @@ else:
                 break
             if '# sentence' in line or '# text' in line:
                 cat = 'gold'
-        toolbox.get_raw(path, test_file, 'raw_test.txt', cat)
+        reader.get_raw(path, test_file, 'raw_test.txt', cat, form=args.format)
 
         raws_test = reader.raw(path + '/raw_test.txt')
-        test_y_gold = reader.conll_gold(path + '/' + test_file)
+        test_y_gold = reader.test_gold(path + '/' + test_file, form=args.format, is_space=is_space)
 
         new_chars = toolbox.get_new_chars(path + '/raw_test.txt', char2idx, is_space)
 
@@ -464,21 +469,22 @@ else:
     if transducer is not None:
         transducer_graph = tf.Graph()
         with transducer_graph.as_default():
-            trans_model = Seq2seq(path + '/' + model_file + '_transducer')
-            trans_fin = open(path + '/' + model_file + '_transducer_model', 'rb')
-            trans_param_dic = pickle.load(trans_fin)
-            trans_fin.close()
+            with tf.variable_scope("transducer") as scope:
+                trans_model = Seq2seq(path + '/' + model_file + '_transducer')
+                trans_fin = open(path + '/' + model_file + '_transducer_model', 'rb')
+                trans_param_dic = pickle.load(trans_fin)
+                trans_fin.close()
 
-            tr_char_num = trans_param_dic['char_num']
-            tr_rnn_dim = trans_param_dic['rnn_dim']
-            tr_emb_dim = trans_param_dic['emb_dim']
-            tr_max_x = trans_param_dic['max_x']
-            tr_max_y = trans_param_dic['max_y']
+                tr_char_num = trans_param_dic['char_num']
+                tr_rnn_dim = trans_param_dic['rnn_dim']
+                tr_emb_dim = trans_param_dic['emb_dim']
+                tr_max_x = trans_param_dic['max_x']
+                tr_max_y = trans_param_dic['max_y']
 
-            print 'Defining transducer...'
-            trans_model.define(char_num=tr_char_num, rnn_dim=tr_rnn_dim, emb_dim=tr_emb_dim,
-                               max_x=tr_max_x, max_y=tr_max_y, write_trans_model=False)
-            trans_init = tf.initialize_all_variables()
+                print 'Defining transducer...'
+                trans_model.define(char_num=tr_char_num, rnn_dim=tr_rnn_dim, emb_dim=tr_emb_dim,
+                                   max_x=tr_max_x, max_y=tr_max_y, write_trans_model=False)
+            trans_init = tf.global_variables_initializer()
         transducer_graph.finalize()
 
     print 'Initialization....'
@@ -491,11 +497,11 @@ else:
             model.main_graph(trained_model=None, scope=scope, emb_dim=emb_dim, gru=gru,
                              rnn_dim=rnn_dim, rnn_num=rnn_num, drop_out=drop_out)
 
-            model.define_updates(new_chars=new_chars, emb_path=emb_path, char2idx=char2idx)
+        model.define_updates(new_chars=new_chars, emb_path=emb_path, char2idx=char2idx)
 
-            init = tf.initialize_all_variables()
+        init = tf.global_variables_initializer()
 
-            print 'Done. Time consumed: %d seconds' % int(time() - t)
+        print 'Done. Time consumed: %d seconds' % int(time() - t)
     main_graph.finalize()
 
     idx=None
@@ -503,7 +509,7 @@ else:
     if args.ensemble:
         idx = 1
         main_sess = []
-        while os.path.isfile(path + '/' + model_file + '_' + str(idx) + '_weights'):
+        while os.path.isfile(path + '/' + model_file + '_' + str(idx) + '_weights.index'):
             main_sess.append(tf.Session(config=config, graph=main_graph))
             idx += 1
     else:
@@ -552,9 +558,15 @@ else:
         if args.action == 'tag':
 
             if not args.segment_large:
-                raw_sents = [line.strip() for line in codecs.open(raw_file, 'rb', encoding='utf-8')]
+                raw_sents = []
+                for line in codecs.open(raw_file, 'rb', encoding='utf-8'):
+                    line = line.strip()
+                    #segs = line.split()
+                    #line = ' '.join(segs)
+                    if len(line) > 0:
+                        raw_sents.append(line)
                 model.tag(raw_x, raw_sents, idx2tag, idx2char, unk_chars, trans_dict, sess, transducer=trans_model, outpath=args.output_path,
-                          ensemble=args.ensemble, batch_size=args.tag_batch, sent_seg=sent_seg, seg_large=args.segment_large)
+                          ensemble=args.ensemble, batch_size=args.tag_batch, sent_seg=sent_seg, seg_large=args.segment_large, form=args.format)
             else:
                 count = 0
                 c_line = 0
@@ -592,7 +604,7 @@ else:
 
                             predition, multi = model.tag(raw_x, lines, idx2tag, idx2char, unk_chars, trans_dict, sess, transducer=trans_model,
                                                          outpath=args.output_path, ensemble=args.ensemble, batch_size=args.tag_batch,
-                                                         sent_seg=sent_seg, seg_large=args.segment_large)
+                                                         sent_seg=sent_seg, seg_large=args.segment_large, form=args.format)
 
                             if args.only_tokenised:
                                 for l_out in predition:
@@ -639,7 +651,7 @@ else:
 
                         prediction, multi = model.tag(raw_x, lines, idx2tag, idx2char, unk_chars, trans_dict, sess,
                                                      transducer=trans_model, outpath=args.output_path, ensemble=args.ensemble,
-                                                     batch_size=args.tag_batch, sent_seg=sent_seg, seg_large=args.segment_large)
+                                                     batch_size=args.tag_batch, sent_seg=sent_seg, seg_large=args.segment_large, form=args.format)
 
                         if args.only_tokenised:
                             for l_out in prediction:

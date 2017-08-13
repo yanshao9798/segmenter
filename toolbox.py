@@ -248,130 +248,6 @@ def read_sample_embedding(path, short_emb, char2idx):
     return emb_dim, emb_values, valid_chars
 
 
-def get_raw(path, fin, fo, cat='other', new=True, is_dev=True):
-    fout = codecs.open(path + '/' + fo, 'w', encoding='utf-8')
-    fout_dev = None
-    if not is_dev:
-        fout_dev = codecs.open(path + '/raw_dev.txt', 'w', encoding='utf-8')
-    cter = 0
-    if cat == 'gold':
-        for line in codecs.open(path + '/' + fin, 'r', encoding='utf-8'):
-            line = line.strip()
-            line = line.replace('&apos', '\'')
-            if len(line) > 0 and ('# sentence' in line or '# text' in line):
-                if new:
-                    if not is_dev and cter == 9:
-                        fout_dev.write(line[line.index('=') + 1:].lstrip() + '\n')
-                        cter = 0
-                    else:
-                        fout.write(line[line.index('=') + 1:].lstrip() + '\n')
-                        cter += 1
-                else:
-                    if not is_dev and cter == 9:
-                        fout_dev.write(line[line.index(':') + 1:].lstrip() + '\n')
-                        cter = 0
-                    else:
-                        fout.write(line[line.index(':') + 1:].lstrip() + '\n')
-                        cter += 1
-
-    elif cat == 'zh':
-        pt = ''
-        for line in codecs.open(path + '/' + fin, 'r', encoding='utf-8'):
-            line = line.strip()
-            line = line.split('\t')
-            if len(line) == 10:
-                pt += line[1]
-            else:
-                if len(pt) > 0:
-                    if not is_dev and cter == 9:
-                        fout_dev.write(pt + '\n')
-                        cter = 0
-                    else:
-                        fout.write(pt + '\n')
-                        cter += 1
-                    pt = ''
-
-    else:
-        punc_e = ['!', ')', ',', '.', ';', ':', '?', '»', '...', ']', '..', '....', '%', 'º', '²', '°']
-        punc_b = ['¿', '¡', '(', '«', '[']
-        punc_m = ['"', '\'']
-        punc_e = [s.decode('utf-8') for s in punc_e]
-        punc_b = [s.decode('utf-8') for s in punc_b]
-        punc_m = [s.decode('utf-8') for s in punc_m]
-        md = {}
-        for p in punc_m:
-            md[p] = True
-        pt = ''
-        ct = 0
-        for line in codecs.open(path + '/' + fin, 'r', encoding='utf-8'):
-            line = line.strip()
-            segs = line.split('\t')
-            if len(segs) == 10:
-                if '-' in segs[0]:
-                    sp = segs[0].split('-')
-                    ct = int(sp[1]) - int(sp[0]) + 1
-                    if len(pt) > 0 and pt[-1] in punc_b:
-                        pt += segs[1]
-                    elif len(pt) > 0 and pt[-1] in punc_m:
-                        if md[pt[-1]]:
-                            pt += ' ' + segs[1]
-                        else:
-                            pt += segs[1]
-                    else:
-                        pt += ' ' + segs[1]
-                elif ct == 0:
-                    if segs[1] in punc_e:
-                        pt += segs[1]
-                    elif len(pt) > 0 and pt[-1] in punc_b:
-                        pt += segs[1]
-                        if segs[1] in punc_m:
-                            if md[segs[1]]:
-                                md[segs[1]] = False
-                            else:
-                                md[segs[1]] = True
-                    elif segs[1] in punc_m:
-                        if md[segs[1]]:
-                            pt += ' ' + segs[1]
-                            md[segs[1]] = False
-                        else:
-                            pt += segs[1]
-                            md[segs[1]] = True
-                    elif len(pt) > 0 and pt[-1] in punc_m:
-                        if md[pt[-1]]:
-                            pt += ' ' + segs[1]
-                        else:
-                            pt += segs[1]
-                    elif segs[1][0] == '\'':
-                        pt += segs[1]
-                    else:
-                        pt += ' ' + segs[1]
-                else:
-                    ct -= 1
-            else:
-                if len(pt) > 0:
-                    pt = pt.lstrip()
-                    pt = pt.replace(' ",', '",')
-                    pt = pt.replace(' ".', '".')
-                    pt = pt.replace(':"...', ': "...')
-                    pt = pt.replace(' n\'t', 'n\'t')
-                    pt = pt.replace(' - ', '-')
-                    pt = pt.replace(' -- ', '--')
-                    pt = pt.replace(' / ', '/')
-                    if not is_dev and cter == 9:
-                        fout_dev.write(pt + '\n')
-                        cter = 0
-                    else:
-                        fout.write(pt + '\n')
-                        cter += 1
-                    pt = ''
-                    for p in punc_m:
-                        md[p] = True
-
-    fout.close()
-    if not is_dev:
-        fout_dev.close()
-
-
 def get_sent_raw(path, fname, is_space=True):
     long_line = ''
     for line in codecs.open(path + '/' + fname, 'r', encoding='utf-8'):
@@ -400,8 +276,8 @@ def chop(line, ad_s, limit):
         line = line[limit - 10:]
         if len(line) < 10:
             line = ''
-    #while len(out) > 0 and len(out[-1]) < limit-1:
-    #    out[-1].append(0)
+    while len(out) > 0 and len(out[-1]) < limit-1:
+        out[-1].append(0)
     return out
 
 
@@ -638,28 +514,29 @@ def get_input_vec_raw(path, fname, char2idx, lines=None, limit=500, sent_seg=Fal
     else:
         for line in lines:
             line = line.strip()
-            if is_space == 'sea':
-                line = pre_token(line)
-            elif ignore_space:
-                line = ''.join(line.split())
-            max_len = max(max_len, len(line))
-            s_count += 1
+            if len(line) > 0:
+                if is_space == 'sea':
+                    line = pre_token(line)
+                elif ignore_space:
+                    line = ''.join(line.split())
+                max_len = max(max_len, len(line))
+                s_count += 1
 
-            for ch in line:
-                if len(ch.strip()) == 0:
-                    x.append(char2idx[' '])
-                elif ch in char2idx:
-                    x.append(char2idx[ch])
+                for ch in line:
+                    if len(ch.strip()) == 0:
+                        x.append(char2idx[' '])
+                    elif ch in char2idx:
+                        x.append(char2idx[ch])
+                    else:
+                        x.append(char2idx['<UNK>'])
+
+                if len(line) > limit:
+                    l_count += 1
+                    chop_x = chop(x, char2idx['<#>'], limit)
+                    x_indices += chop_x
                 else:
-                    x.append(char2idx['<UNK>'])
-
-            if len(line) > limit:
-                l_count += 1
-                chop_x = chop(x, char2idx['<#>'], limit)
-                x_indices += chop_x
-            else:
-                x_indices.append(x)
-            x = []
+                    x_indices.append(x)
+                x = []
         max_len = min(max_len, limit)
         if l_count > 0:
             print '%d (out of %d) sentences are chopped.' % (l_count, s_count)
@@ -684,28 +561,29 @@ def get_input_vec_tag(path, fname, char2idx, lines=None, limit=500, is_space=Tru
         lines = codecs.open(real_path, 'r', encoding='utf-8')
     for line in lines:
         line = line.strip()
-        if is_space == 'sea':
-            line = pre_token(line)
         if len(line) > 0:
-            for ch in line:
-                if len(ch.strip()) == 0:
-                    x.append(char2idx[' '])
-                elif ch in char2idx:
-                    x.append(char2idx[ch])
-                else:
-                    x.append(char2idx['<UNK>'])
-            if is_space is True:
-                if is_first:
-                    is_first = False
-                else:
-                    x = [space_idx] + x
-            x_indices += x
-            x = []
-        elif len(x_indices) > 0:
-            x_indices = chop(x_indices, char2idx['<#>'], limit)
-            out += x_indices
-            x_indices = []
-            is_first = True
+            if is_space == 'sea':
+                line = pre_token(line)
+            if len(line) > 0:
+                for ch in line:
+                    if len(ch.strip()) == 0:
+                        x.append(char2idx[' '])
+                    elif ch in char2idx:
+                        x.append(char2idx[ch])
+                    else:
+                        x.append(char2idx['<UNK>'])
+                if is_space is True:
+                    if is_first:
+                        is_first = False
+                    else:
+                        x = [space_idx] + x
+                x_indices += x
+                x = []
+            elif len(x_indices) > 0:
+                x_indices = chop(x_indices, char2idx['<#>'], limit)
+                out += x_indices
+                x_indices = []
+                is_first = True
 
     if len(x_indices) > 0:
         x_indices = chop(x_indices, char2idx['<#>'], limit)
@@ -1742,45 +1620,49 @@ def get_new_grams(path, gram2idx, is_raw=False, is_space=True):
     return new_grams
 
 
-def printer(raw, tagged, multi_out, outpath, sent_seg):
+def printer(raw, tagged, multi_out, outpath, sent_seg, form='conll'):
     assert len(tagged) == len(multi_out)
     validator(raw, multi_out)
     wt = codecs.open(outpath, 'w', encoding='utf-8')
-    if not sent_seg:
-        for raw_t, tagged_t, multi_t in zip(raw, tagged, multi_out):
-            if len(multi_t) > 0:
-                wt.write('#sent_raw: ' + raw_t + '\n')
-                wt.write('#sent_tok: ' + tagged_t + '\n')
-                idx = 1
-                tgs = multi_t.split('  ')
-                pl = ''
-                for _ in range(8):
-                    pl += '\t' + '_'
-                for tg in tgs:
-                    if '!#!' in tg:
-                        segs = tg.split('!#!')
-                        wt.write(str(idx) + '-' + str(int(segs[1]) + idx - 1) + '\t' + segs[0] + pl + '\n')
-                    else:
-                        wt.write(str(idx) + '\t' + tg + pl + '\n')
-                        idx += 1
-                wt.write('\n')
+    if form == 'conll':
+        if not sent_seg:
+            for raw_t, tagged_t, multi_t in zip(raw, tagged, multi_out):
+                if len(multi_t) > 0:
+                    wt.write('#sent_raw: ' + raw_t + '\n')
+                    wt.write('#sent_tok: ' + tagged_t + '\n')
+                    idx = 1
+                    tgs = multi_t.split('  ')
+                    pl = ''
+                    for _ in range(8):
+                        pl += '\t' + '_'
+                    for tg in tgs:
+                        if '!#!' in tg:
+                            segs = tg.split('!#!')
+                            wt.write(str(idx) + '-' + str(int(segs[1]) + idx - 1) + '\t' + segs[0] + pl + '\n')
+                        else:
+                            wt.write(str(idx) + '\t' + tg + pl + '\n')
+                            idx += 1
+                    wt.write('\n')
+        else:
+            for tagged_t, multi_t in zip(tagged, multi_out):
+                if len(tagged_t.strip()) > 0:
+                    wt.write('#sent_tok: '+ tagged_t + '\n')
+                    idx = 1
+                    tgs = multi_t.split('  ')
+                    pl = ''
+                    for _ in range(8):
+                        pl += '\t' + '_'
+                    for tg in tgs:
+                        if '!#!' in tg:
+                            segs = tg.split('!#!')
+                            wt.write(str(idx) + '-' + str(int(segs[1]) + idx - 1) + '\t' + segs[0] + pl + '\n')
+                        else:
+                            wt.write(str(idx) + '\t' + tg + pl + '\n')
+                            idx += 1
+                    wt.write('\n')
     else:
-        for tagged_t, multi_t in zip(tagged, multi_out):
-            if len(tagged_t.strip()) > 0:
-                wt.write('#sent_tok: '+ tagged_t + '\n')
-                idx = 1
-                tgs = multi_t.split('  ')
-                pl = ''
-                for _ in range(8):
-                    pl += '\t' + '_'
-                for tg in tgs:
-                    if '!#!' in tg:
-                        segs = tg.split('!#!')
-                        wt.write(str(idx) + '-' + str(int(segs[1]) + idx - 1) + '\t' + segs[0] + pl + '\n')
-                    else:
-                        wt.write(str(idx) + '\t' + tg + pl + '\n')
-                        idx += 1
-                wt.write('\n')
+        for tg in tagged:
+            wt.write(tg + '\n')
     wt.close()
 
 
@@ -1850,3 +1732,46 @@ def validator(raw, generated):
                     raise Exception('Error: unmatch...')
             j += 1
 
+
+def mlp_post(raw, prediction, is_space=False, form='mlp1'):
+    assert len(raw) == len(prediction)
+    out = []
+    for r_l, p_l in zip(raw, prediction):
+        st = ''
+        rtokens = r_l.split()
+        ptokens = p_l.split('  ')
+        purged = []
+        for pt in ptokens:
+            purged.append(pt.strip())
+        ptokens = purged
+        ptokens_str = ''.join(ptokens)
+        assert ''.join(rtokens) == ''.join(ptokens_str.split())
+        if form == 'mlp1':
+            if is_space == 'sea':
+                for p_t in ptokens:
+                    st += p_t.replace(' ', '_') + ' '
+            else:
+                while rtokens and ptokens:
+                    if rtokens[0] == ptokens[0]:
+                        st += ptokens[0] + ' '
+                        rtokens.pop(0)
+                        ptokens.pop(0)
+                    else:
+                        if len(rtokens[0]) <= len(ptokens[0]):
+                            assert ptokens[0][:len(rtokens[0])] == rtokens[0]
+                            st += rtokens[0] + ' '
+                            ptokens[0] = ptokens[0][len(rtokens[0]):].strip()
+                            rtokens.pop(0)
+                        else:
+                            can = ''
+                            while can != rtokens[0] and ptokens:
+                                can += ptokens[0]
+                                st += ptokens[0] + '\\\\'
+                                ptokens.pop(0)
+                            st = st[:-2] + ' '
+                            rtokens.pop(0)
+        else:
+            for p_t in ptokens:
+                st += p_t + ' '
+        out.append(st.strip())
+    return out

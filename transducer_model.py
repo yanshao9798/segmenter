@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
+import tensorflow.contrib.legacy_seq2seq as seq2seq
 import toolbox
 import batch as Batch
 import numpy as np
@@ -30,10 +31,10 @@ class Seq2seq(object):
         self.feed_previous = tf.placeholder(tf.bool)
         self.trans_l_rate = tf.placeholder(tf.float32, [], name='learning_rate')
         seq_cell = tf.nn.rnn_cell.BasicLSTMCell(rnn_dim, state_is_tuple=True)
-        self.trans_output, states = tf.nn.seq2seq.embedding_attention_seq2seq(self.en_vec, self.de_vec, seq_cell, char_num, char_num, emb_dim,
-                                                                   feed_previous=self.feed_previous)
+        self.trans_output, states = seq2seq.embedding_attention_seq2seq(self.en_vec, self.de_vec, seq_cell, char_num,
+                                                                        char_num, emb_dim, feed_previous=self.feed_previous)
 
-        loss = tf.nn.seq2seq.sequence_loss(self.trans_output, self.trans_labels, weights)
+        loss = seq2seq.sequence_loss(self.trans_output, self.trans_labels, weights)
         optimizer = tf.train.AdagradOptimizer(learning_rate=self.trans_l_rate)
 
         params = tf.trainable_variables()

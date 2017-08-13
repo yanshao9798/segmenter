@@ -117,20 +117,18 @@ class Model(object):
                     emb_set.append(gram_out)
 
             if len(emb_set) > 1:
-                emb_out = tf.concat(2, emb_set)
+                emb_out = tf.concat(axis=2, values=emb_set)
 
             else:
                 emb_out = emb_set[0]
 
             emb_out = DropoutLayer(dr)(emb_out)
-            emb_out = tf.unpack(emb_out)
 
             rnn_out = BiLSTM(rnn_dim, fw_cell=fw_rnn_cell, bw_cell=bw_rnn_cell, p=dr, name='BiLSTM' + str(bucket), scope='BiRNN')(emb_out, input_v)
 
             output = output_wrapper(rnn_out)
-            output_c = tf.pack(output, axis=1)
 
-            self.output.append([output_c])
+            self.output.append([output])
 
             self.output_.append([tf.placeholder(tf.int32, [None, bucket], name='tags' + str(bucket))])
             self.bucket_dit[bucket] = idx
@@ -206,12 +204,12 @@ class Model(object):
             length = tf.placeholder(tf.int32, [None])
             b_size = tf.placeholder(tf.int32, [])
             small = -1000
-            class_pad = tf.pack(small * tf.ones([b_size, nums_steps, 1]))
-            observations = tf.concat(2, [ob, class_pad])
+            class_pad = tf.stack(small * tf.ones([b_size, nums_steps, 1]))
+            observations = tf.concat(axis=2, values=[ob, class_pad])
             b_vec = tf.tile(([small] * nt + [0]), [b_size])
             b_vec = tf.cast(b_vec, tf.float32)
             b_vec = tf.reshape(b_vec, [b_size, 1, -1])
-            observations = tf.concat(1, [b_vec, observations])
+            observations = tf.concat(axis=1, values=[b_vec, observations])
             transitions = tf.reshape(tf.tile(trans, [b_size, 1]), [b_size, nt + 1, nt + 1])
             observations = tf.reshape(observations, [-1, nums_steps + 1, nt + 1, 1])
             observations = tf.transpose(observations, [1, 0, 2, 3])
@@ -223,13 +221,13 @@ class Model(object):
                 previous = tf.reshape(previous, [-1, nt + 1, 1])
                 current = tf.reshape(observations[t, :, :, :], [-1, 1, nt + 1])
                 alpha_t = previous + current + transitions
-                max_scores.append(tf.reduce_max(alpha_t, reduction_indices=1))
-                max_scores_pre.append(tf.argmax(alpha_t, dimension=1))
+                max_scores.append(tf.reduce_max(alpha_t, axis=1))
+                max_scores_pre.append(tf.argmax(alpha_t, axis=1))
                 alpha_t = tf.reshape(Forward.log_sum_exp(alpha_t, axis=1), [-1, nt + 1, 1])
                 alphas.append(alpha_t)
                 previous = alpha_t
-            max_scores = tf.pack(max_scores, axis=1)
-            max_scores_pre = tf.pack(max_scores_pre, axis=1)
+            max_scores = tf.stack(max_scores, axis=1)
+            max_scores_pre = tf.stack(max_scores_pre, axis=1)
             decode_holders.append([ob, trans, length, b_size])
             scores.append((max_scores, max_scores_pre))
             self.decode_holders.append(decode_holders)
@@ -244,10 +242,10 @@ class Model(object):
             old_emb_weights = self.emb_layer.embeddings
             emb_dim = old_emb_weights.get_shape().as_list()[1]
             emb_len = old_emb_weights.get_shape().as_list()[0]
-            new_emb = tf.pack(toolbox.get_new_embeddings(new_chars, emb_dim, emb_path))
+            new_emb = tf.stack(toolbox.get_new_embeddings(new_chars, emb_dim, emb_path))
             n_emb_sh = new_emb.get_shape().as_list()
             if len(n_emb_sh) > 1:
-                new_emb_weights = tf.concat(0, [old_emb_weights[:len(char2idx) - len(new_chars)], new_emb, old_emb_weights[len(char2idx):]])
+                new_emb_weights = tf.concat(axis=0, values=[old_emb_weights[:len(char2idx) - len(new_chars)], new_emb, old_emb_weights[len(char2idx):]])
                 if new_emb_weights.get_shape().as_list()[0] > emb_len:
                     new_emb_weights = new_emb_weights[:emb_len]
                 assign_op = old_emb_weights.assign(new_emb_weights)
@@ -449,7 +447,7 @@ class Model(object):
             print 'True negative rate: %f' % scores[3]
 
     def tag(self, r_x, r_x_raw, idx2tag, idx2char, unk_chars, trans_dict, sess, transducer, ensemble=None, batch_size=100,
-            outpath=None, sent_seg=False, seg_large=False):
+            outpath=None, sent_seg=False, seg_large=False, form='conll'):
 
         chars = toolbox.decode_chars(r_x[0], idx2char)
 
@@ -490,9 +488,11 @@ class Model(object):
         prediction_out = pre_out
         multi_out = mut_out
 
-        if not seg_large:
+        if form == 'mlp1' or form == 'mlp2':
+            prediction_out = toolbox.mlp_post(r_x_raw, prediction_out, self.is_space, form)
 
-            toolbox.printer(r_x_raw, prediction_out, multi_out, outpath, sent_seg)
+        if not seg_large:
+            toolbox.printer(r_x_raw, prediction_out, multi_out, outpath, sent_seg, form)
 
         else:
             return prediction_out, multi_out

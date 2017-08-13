@@ -62,7 +62,6 @@ def evaluator(prediction, gold, prediction_raw=None, gold_raw=None, verbose=Fals
                 rp += len(gd_t)
                 sl = len(''.join(pre_t))
                 tw += (1 + sl) * sl / 2
-
         precision = float(tp) / float(s)
         recall = float(tp) / float(g)
         if precision == 0 and recall == 0:
