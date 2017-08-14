@@ -382,7 +382,7 @@ else:
 
         char2idx, idx2char, unk_chars = toolbox.update_char_dict(char2idx, new_chars, unk_chars, valid_chars)
 
-        test_x, max_len_test = toolbox.get_input_vec_raw(path, 'raw_test.txt', char2idx, limit=args.sent_limit,
+        test_x, max_len_test = toolbox.get_input_vec_raw(path, 'raw_test.txt', char2idx, limit=args.sent_limit + 100,
                                                          sent_seg=sent_seg, is_space=is_space, ignore_space=args.ignore_space)
 
         max_step = max_len_test
@@ -396,7 +396,7 @@ else:
             gram2idx = toolbox.get_ngram_dic(grams)
             new_grams = toolbox.get_new_grams(path + '/' + test_file, gram2idx, is_space=is_space)
 
-            test_grams = toolbox.get_gram_vec(path, 'raw_test.txt', gram2idx, is_raw=True, limit=args.sent_limit,
+            test_grams = toolbox.get_gram_vec(path, 'raw_test.txt', gram2idx, is_raw=True, limit=args.sent_limit + 100,
                                               sent_seg=sent_seg, is_space=is_space, ignore_space=args.ignore_space)
             test_x += test_grams
 
@@ -419,9 +419,9 @@ else:
         if not args.segment_large:
 
             if sent_seg:
-                raw_x, raw_len = toolbox.get_input_vec_tag(None, raw_file, char2idx, limit=args.sent_limit, is_space=is_space)
+                raw_x, raw_len = toolbox.get_input_vec_tag(None, raw_file, char2idx, limit=args.sent_limit + 100, is_space=is_space)
             else:
-                raw_x, raw_len = toolbox.get_input_vec_raw(None, raw_file, char2idx, limit=args.sent_limit, sent_seg=sent_seg, is_space=is_space)
+                raw_x, raw_len = toolbox.get_input_vec_raw(None, raw_file, char2idx, limit=args.sent_limit + 100, sent_seg=sent_seg, is_space=is_space)
 
 
             if sent_seg:
@@ -441,9 +441,9 @@ else:
 
             if not args.segment_large:
                 if sent_seg:
-                    raw_grams = toolbox.get_gram_vec_tag(None, raw_file, gram2idx, limit=args.sent_limit, is_space=is_space)
+                    raw_grams = toolbox.get_gram_vec_tag(None, raw_file, gram2idx, limit=args.sent_limit + 100, is_space=is_space)
                 else:
-                    raw_grams = toolbox.get_gram_vec(None, raw_file, gram2idx, is_raw=True, limit=args.sent_limit,
+                    raw_grams = toolbox.get_gram_vec(None, raw_file, gram2idx, is_raw=True, limit=args.sent_limit + 100,
                                                      sent_seg=sent_seg, is_space=is_space)
 
                 raw_x += raw_grams
