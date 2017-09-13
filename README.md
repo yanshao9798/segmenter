@@ -68,4 +68,7 @@ python segmenter.py tag -ens -p mlp/basque -f mlp1 -m basque -r testset/basque_r
 
 ## Reference
 
+Yan Shao. "Cross-lingual Word Segmentation and Morpheme Segmentation as Sequence Labelling" arXiv preprint arXiv:1709.03756 (2017).
+
+https://arxiv.org/pdf/1709.03756.pdf
 
