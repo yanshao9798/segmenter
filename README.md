@@ -48,7 +48,7 @@ python segmenter.py tag -p mlp/basque -f mlp1 -m basque -r testset/basque_raw.tx
 
 #### For Chinese and Japanese
 
-python segmenter.py tag -p mlp/tchinese -f mlp1 -m tchinese -r testset/tchinese_raw.txt -opth segmented_mlp/tchinese_single_out.txt
+python segmenter.py tag -p mlp/tchinese -f mlp2 -m tchinese -r testset/tchinese_raw.txt -opth segmented_mlp/tchinese_single_out.txt
 
 ### (Ensemble)
 
