@@ -64,19 +64,57 @@ def raw(path):
     return sents
 
 
-def test_gold(path, form='conll', is_space=False):
+def get_gold(sent, ignore_mwt=False):
+    line = ''
+    nt = -1
+    mwt = ''
+    segs = []
+    for tk in sent:
+        if '-' in tk[0]:
+            if nt == 0:
+                s_mwt = ''.join(segs)
+                if ignore_mwt and s_mwt != mwt:
+                    line += '  ' + mwt
+                else:
+                    for seg in segs:
+                        line += '  ' + seg
+            mwt = tk[1]
+            sp = tk[0].split('-')
+            nt = int(sp[1]) - int(sp[0]) + 1
+            segs = []
+        elif nt == -1:
+            line += '  ' + tk[1]
+        elif nt > 0:
+            segs.append(tk[1])
+            nt -= 1
+        elif nt == 0:
+            s_mwt = ''.join(segs)
+            if ignore_mwt and s_mwt != mwt:
+                line += '  ' + mwt
+            else:
+                for seg in segs:
+                    line += '  ' + seg
+            nt = -1
+            mwt = ''
+            segs = []
+            line += '  ' + tk[1]
+    return line.strip()
+
+
+def test_gold(path, form='conll', is_space=False, ignore_mwt=False):
     sents = []
+    sent = []
     st = ''
     for line in codecs.open(path, 'rb', encoding='utf-8'):
         line = line.strip()
         if form == 'conll':
             segs = line.split('\t')
             if len(segs) == 10:
-                if '.' not in segs[0] and '-' not in segs[0]:
-                    st += '  ' + segs[1]
-            elif len(st) > 0:
-                sents.append(st.strip())
-                st = ''
+                if '.' not in segs[0]:
+                    sent.append(tuple(segs))
+            elif len(sent) > 0:
+                sents.append(sent)
+                sent = []
         elif form == 'mlp1' or form == 'mlp2':
             if len(line) > 0:
                 if form == 'mlp1':
@@ -94,6 +132,9 @@ def test_gold(path, form='conll', is_space=False):
                 st = ''
         else:
             raise Exception('Format error, available: conll, mlp1, mlp2')
+    if form == 'conll':
+        p_sents = [get_gold(s_sent, ignore_mwt=ignore_mwt) for s_sent in sents]
+        sents = p_sents
     return sents
 
 
