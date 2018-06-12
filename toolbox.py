@@ -8,12 +8,14 @@ import numpy as np
 import random
 import os
 import math
+from reader import get_gold
 
 sys = reload(sys)
 sys.setdefaultencoding('utf-8')
 
 punc = ['!', ')', ',', '.', ';', ':', '?', '»', '...', '..', '....', '%', 'º', '²', '°', '¿', '¡', '(', '«',
         '"', '\'', '-', '。', '·', '।', '۔']
+
 
 def pre_token(line):
     out = []
@@ -54,7 +56,7 @@ def get_chars(path, filelist, sea=False):
 
 def get_dicts(path, sent_seg, tag_scheme='BIES', crf=1):
     char2idx = {'<P>': 0, '<UNK>': 1, '<#>': 2}
-    unk_chars = []
+    unk_chars_idx = []
     idx = 3
     for line in codecs.open(path + '/chars.txt', 'r', encoding='utf-8'):
         segs = line.split('\t')
@@ -65,14 +67,16 @@ def get_dicts(path, sent_seg, tag_scheme='BIES', crf=1):
         else:
             char2idx[segs[0]] = idx
             if int(segs[1]) == 1:
-                unk_chars.append(idx)
+                unk_chars_idx.append(idx)
             idx += 1
     idx2char = {k: v for v, k in char2idx.items()}
     if tag_scheme == 'BI':
         if crf > 0:
             tag2idx = {'<P>': 0, 'B': 1, 'I': 2}
+            idx = 3
         else:
             tag2idx = {'B': 0, 'I': 1}
+            idx = 2
     else:
         if crf > 0:
             tag2idx = {'<P>': 0, 'B': 1, 'I': 2, 'E': 3, 'S': 4}
@@ -80,14 +84,14 @@ def get_dicts(path, sent_seg, tag_scheme='BIES', crf=1):
         else:
             tag2idx = {'B': 0, 'I':1, 'E':2, 'S':3}
             idx = 4
-        for line in codecs.open(path + '/tags.txt', 'r', encoding='utf-8'):
-            line = line.strip()
-            if line not in tag2idx:
-                tag2idx[line] = idx
-                idx += 1
-        if sent_seg:
-            tag2idx['T'] = idx
-            tag2idx['U'] = idx + 1
+    for line in codecs.open(path + '/tags.txt', 'r', encoding='utf-8'):
+        line = line.strip()
+        if line not in tag2idx:
+            tag2idx[line] = idx
+            idx += 1
+    if sent_seg:
+        tag2idx['T'] = idx
+        tag2idx['U'] = idx + 1
     idx2tag = {k: v for v, k in tag2idx.items()}
 
     trans_dict = {}
@@ -104,7 +108,7 @@ def get_dicts(path, sent_seg, tag_scheme='BIES', crf=1):
                     if trans_dict[key] is None:
                         trans_dict[key] = segs[0].replace(' ', '  ')
 
-    return char2idx, unk_chars, idx2char, tag2idx, idx2tag, trans_dict
+    return char2idx, unk_chars_idx, idx2char, tag2idx, idx2tag, trans_dict
 
 
 def ngrams(raw, gram, is_space):
@@ -591,6 +595,7 @@ def get_input_vec_tag(path, fname, char2idx, lines=None, limit=500, is_space=Tru
 
     return [out], limit
 
+
 def get_vecs(str, char2idx):
     out = []
     for ch in str:
@@ -835,54 +840,47 @@ def read_vocab_tag(path):
     return tag2idx, idx2tag
 
 
-def get_tags(can, action='sep', tag_scheme='BIES'):
+def get_tags(can, action='sep', tag_scheme='BIES', ignore_mwt=False):
     tags = []
     if tag_scheme == 'BI':
         for i in range(len(can)):
             if i == 0:
-                if action == 'sep':
+                if action == 'sep' or ignore_mwt:
                     tags.append('B')
                 else:
                     tags.append('K')
             else:
-                if action == 'sep':
+                if action == 'sep' or ignore_mwt:
                     tags.append('I')
                 else:
                     tags.append('Z')
     else:
         for i in range(len(can)):
             if len(can) == 1:
-                if action == 'sep':
+                if action == 'sep' or ignore_mwt:
                     tags.append('S')
                 else:
                     tags.append('D')
             elif i == 0:
-                if action == 'sep':
+                if action == 'sep' or ignore_mwt:
                     tags.append('B')
                 else:
                     tags.append('K')
             elif i == len(can) - 1:
-                if action == 'sep':
+                if action == 'sep' or ignore_mwt:
                     tags.append('E')
                 else:
                     tags.append('J')
             else:
-                if action == 'sep':
+                if action == 'sep' or ignore_mwt:
                     tags.append('I')
                 else:
                     tags.append('Z')
     return tags
 
 
-def get_gold(sent):
-    line = ''
-    for tk in sent:
-        if '-' not in tk[0]:
-            line += '  ' + tk[1]
-    return line[2:]
-
-
 def update_dict(trans_dic, can, trans):
+    can = can.lower()
     if can not in trans_dic:
         trans_dic[can] = {}
     if trans not in trans_dic[can]:
@@ -892,9 +890,10 @@ def update_dict(trans_dic, can, trans):
     return trans_dic
 
 
-def raw2tags(raw, sents, path, train_file, creat_dict=True, gold_path=None, ignore_space=False, reset=False, tag_scheme='BIES'):
+def raw2tags(raw, sents, path, train_file, creat_dict=True, gold_path=None, ignore_space=False, reset=False,
+             tag_scheme='BIES', ignore_mwt=False):
     wt = codecs.open(path + '/' + train_file, 'w', encoding='utf-8')
-    if creat_dict:
+    if creat_dict and not ignore_mwt:
         wd = codecs.open(path + '/dict.txt', 'w', encoding='utf-8')
     wg = None
     if gold_path is not None:
@@ -930,9 +929,10 @@ def raw2tags(raw, sents, path, train_file, creat_dict=True, gold_path=None, igno
                         tags.append('X')
                 tags.pop()
             else:
-                tags += get_tags(can, action='trans', tag_scheme=tag_scheme)
-                trans = ' '.join(segs)
-                trans_dic = update_dict(trans_dic, can, trans)
+                tags += get_tags(can, action='trans', tag_scheme=tag_scheme, ignore_mwt=ignore_mwt)
+                if not ignore_mwt:
+                    trans = ' '.join(segs)
+                    trans_dic = update_dict(trans_dic, can, trans)
         else:
             tags += get_tags(can, tag_scheme=tag_scheme)
             sent_l.pop(0)
@@ -945,7 +945,7 @@ def raw2tags(raw, sents, path, train_file, creat_dict=True, gold_path=None, igno
         tags = []
         cans = raw_l.split(' ')
         trans_dic = {}
-        gold = get_gold(sent_l)
+        gold = get_gold(sent_l, ignore_mwt=ignore_mwt)
         pre = ''
         for can in cans:
             t_can = can.strip()
@@ -1012,7 +1012,7 @@ def raw2tags(raw, sents, path, train_file, creat_dict=True, gold_path=None, igno
         for stg in s_tags:
             wtg.write(stg + '\n')
         wtg.close()
-    if creat_dict:
+    if creat_dict and not ignore_mwt:
         for key in final_dic:
             wd.write(key + '\n')
             s_dic = sorted(final_dic[key].items(), key=lambda x: x[1], reverse=True)
@@ -1023,7 +1023,7 @@ def raw2tags(raw, sents, path, train_file, creat_dict=True, gold_path=None, igno
     print 'invalid sentences: ', invalid, len(raw)
 
 
-def raw2tags_sea(raw, sents, path, train_file, gold_path=None, tag_scheme='BIES'):
+def raw2tags_sea(raw, sents, path, train_file, gold_path=None, reset=False, tag_scheme='BIES'):
     wt = codecs.open(path + '/' + train_file, 'w', encoding='utf-8')
     wg = None
     if gold_path is not None:
@@ -1031,7 +1031,7 @@ def raw2tags_sea(raw, sents, path, train_file, gold_path=None, tag_scheme='BIES'
     assert len(raw) == len(sents)
     invalid = 0
     wtg = None
-    if not os.path.isfile(path + '/tags.txt'):
+    if reset or not os.path.isfile(path + '/tags.txt'):
         wtg = codecs.open(path + '/tags.txt', 'w', encoding='utf-8')
 
     s_tags = set()
@@ -1227,21 +1227,20 @@ def decode_chars(idx, idx2chars):
     return out
 
 
-def generate_output(chars, tags, trans_dict, transducer_dict=None, multi_tok=False):
+def generate_output(chars, tags, trans_dict, transducer_dict=None, multi_tok=False, trans_type='mix'):
     out = []
     mult_out = []
     raw_out = []
     sent_seg = False
 
-    def map_trans(c_trans):
-        if c_trans in trans_dict:
+    def map_trans(c_trans, type=trans_type):
+        if c_trans in trans_dict and (type == 'mix' or type == 'dict'):
             c_trans = trans_dict[c_trans]
-        elif c_trans.lower() in trans_dict:
-            c_trans = trans_dict[c_trans.lower()]
-        elif transducer_dict is not None:
+        elif transducer_dict is not None and (type == 'mix' or type == 'trans'):
             c_trans = transducer_dict(c_trans)
-        c_trans = c_trans.replace('    ', '  ')
-        c_trans = c_trans.replace('   ', '  ')
+        sp = c_trans.split()
+        c_trans = '  '.join(sp)
+
         return c_trans
 
     def add_pline(p_line, mt_p_line, c_trans, multi_tok, trans=False):
@@ -1571,20 +1570,41 @@ def get_new_embeddings(new_chars, emb_dim, emb_path):
     return new_emb
 
 
-def update_char_dict(char2idx, new_chars, unk_chars, valid_chars=None):
+def update_char_dict(char2idx, new_chars, unk_chars_idx, valid_chars=None):
+    l_quos = ['"', '«', '„']
+    r_quos = ['"', '»', '“']
+    l_quos = [unicode(ch) for ch in l_quos]
+    r_quos = [unicode(ch) for ch in r_quos]
+    sub_dict = {}
+    old_chars = char2idx.keys()
     dim = len(char2idx) + 10
     if valid_chars is not None:
         for ch in valid_chars:
-            if ch in unk_chars:
-                unk_chars.remove(ch)
+            if char2idx[ch] in unk_chars_idx:
+                unk_chars_idx.remove(ch)
     for char in new_chars:
         if char not in char2idx and len(char.strip()) > 0:
             char2idx[char] = dim
             if valid_chars is None or char not in valid_chars:
-                unk_chars.append(dim)
+                unk_chars_idx.append(dim)
             dim += 1
     idx2char = {k: v for v, k in char2idx.items()}
-    return char2idx, idx2char, unk_chars
+    for ch in new_chars:
+        if ch in l_quos:
+            for l_ch in l_quos:
+                if l_ch in old_chars:
+                    sub_dict[char2idx[ch]] = char2idx[l_ch]
+                    if char2idx[ch] in unk_chars_idx:
+                        unk_chars_idx.remove(char2idx[ch])
+                    break
+        elif ch in r_quos:
+            for r_ch in r_quos:
+                if r_ch in old_chars:
+                    sub_dict[char2idx[ch]] = char2idx[r_ch]
+                    if char2idx[ch] in unk_chars_idx:
+                        unk_chars_idx.remove(char2idx[ch])
+                    break
+    return char2idx, idx2char, unk_chars_idx, sub_dict
 
 
 def get_new_grams(path, gram2idx, is_raw=False, is_space=True):
