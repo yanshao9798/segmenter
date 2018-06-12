@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
-from layers import EmbeddingLayer, BiLSTM, HiddenLayer, TimeDistributed, DropoutLayer, Convolution, Maxpooling, Forward
+from layers import EmbeddingLayer, BiLSTM, HiddenLayer, DropoutLayer, Convolution, Maxpooling, Forward
 from time import time
 import losses
 import toolbox
@@ -13,8 +13,8 @@ import evaluation
 
 class Model(object):
 
-    def __init__(self, nums_chars, nums_tags, buckets_char, counts=None, batch_size=10, crf=1, ngram=None, sent_seg=False,
-                 is_space=True, emb_path=None, tag_scheme='BIES'):
+    def __init__(self, nums_chars, nums_tags, buckets_char, counts=None, batch_size=10, crf=1, ngram=None,
+                 sent_seg=False, is_space=True, emb_path=None, tag_scheme='BIES'):
         self.nums_chars = nums_chars
         self.nums_tags = nums_tags
         self.buckets_char = buckets_char
@@ -55,12 +55,12 @@ class Model(object):
 
         self.real_batches = toolbox.get_real_batch(self.counts, self.batch_size)
 
-    def main_graph(self, trained_model, scope, emb_dim, gru, rnn_dim, rnn_num, drop_out=0.5, emb=None):
+    def main_graph(self, trained_model, scope, emb_dim, cell, rnn_dim, rnn_num, drop_out=0.5, emb=None):
         if trained_model is not None:
-            param_dic = {'nums_chars': self.nums_chars, 'nums_tags': self.nums_tags, 'crf': self.crf, 'emb_dim': emb_dim,
-                         'gru': gru, 'rnn_dim': rnn_dim, 'rnn_num': rnn_num, 'drop_out': drop_out, 'buckets_char': self.buckets_char,
-                         'ngram': self.ngram, 'is_space': self.is_space, 'sent_seg': self.sent_seg, 'emb_path': self.emb_path,
-                         'tag_scheme': self.tag_scheme}
+            param_dic = {'nums_chars': self.nums_chars, 'nums_tags': self.nums_tags, 'crf': self.crf, 'emb_dim':emb_dim,
+                         'cell': cell, 'rnn_dim': rnn_dim, 'rnn_num': rnn_num, 'drop_out': drop_out,
+                         'buckets_char': self.buckets_char, 'ngram': self.ngram, 'is_space': self.is_space,
+                         'sent_seg': self.sent_seg, 'emb_path': self.emb_path, 'tag_scheme': self.tag_scheme}
             #print param_dic
             f_model = open(trained_model, 'w')
             pickle.dump(param_dic, f_model)
@@ -77,11 +77,12 @@ class Model(object):
         if self.ngram is not None:
             ng_embs = [None for _ in range(len(self.ngram))]
             for i, n_gram in enumerate(self.ngram):
-                self.gram_layers.append(EmbeddingLayer(n_gram + 5000 * (i + 2), emb_dim, weights=ng_embs[i], name= str(i + 2) + 'gram_layer'))
+                self.gram_layers.append(EmbeddingLayer(n_gram + 5000 * (i + 2), emb_dim, weights=ng_embs[i],
+                                                       name= str(i + 2) + 'gram_layer'))
 
         with tf.variable_scope('BiRNN'):
 
-            if gru:
+            if cell == 'gru':
                 fw_rnn_cell = tf.nn.rnn_cell.GRUCell(rnn_dim)
                 bw_rnn_cell = tf.nn.rnn_cell.GRUCell(rnn_dim)
             else:
@@ -92,7 +93,7 @@ class Model(object):
                 fw_rnn_cell = tf.nn.rnn_cell.MultiRNNCell([fw_rnn_cell]*rnn_num, state_is_tuple=True)
                 bw_rnn_cell = tf.nn.rnn_cell.MultiRNNCell([bw_rnn_cell]*rnn_num, state_is_tuple=True)
 
-        output_wrapper = TimeDistributed(HiddenLayer(rnn_dim * 2, self.nums_tags, activation='linear', name='hidden'), name='wrapper')
+        output_wrapper = HiddenLayer(rnn_dim * 2, self.nums_tags, activation='linear', name='hidden')
 
         #define model for each bucket
         for idx, bucket in enumerate(self.buckets_char):
@@ -124,7 +125,8 @@ class Model(object):
 
             emb_out = DropoutLayer(dr)(emb_out)
 
-            rnn_out = BiLSTM(rnn_dim, fw_cell=fw_rnn_cell, bw_cell=bw_rnn_cell, p=dr, name='BiLSTM' + str(bucket), scope='BiRNN')(emb_out, input_v)
+            rnn_out = BiLSTM(rnn_dim, fw_cell=fw_rnn_cell, bw_cell=bw_rnn_cell, p=dr, name='BiLSTM' + str(bucket),
+                             scope='BiRNN')(emb_out, input_v)
 
             output = output_wrapper(rnn_out)
 
@@ -135,13 +137,13 @@ class Model(object):
 
             print 'Bucket %d, %f seconds' % (idx + 1, time() - t1)
 
-        assert len(self.input_v) == len(self.output) and len(self.output) == len(self.output_) and len(self.output) == len(self.counts)
+        assert len(self.input_v) == len(self.output)
 
         self.params = tf.trainable_variables()
 
         self.saver = tf.train.Saver()
 
-    def config(self, optimizer, decay, lr_v=None, momentum=None, clipping=False, max_gradient_norm=5.0):
+    def config(self, optimizer, decay, lr_v=None, momentum=None, clipping=True, max_gradient_norm=5.0):
 
         self.decay = decay
         print 'Training preparation...'
@@ -152,7 +154,8 @@ class Model(object):
             loss_function = losses.crf_loss
             for i in range(len(self.input_v)):
                 bucket_loss = losses.loss_wrapper(self.output[i], self.output_[i], loss_function,
-                                                  transitions=[self.transition_char], nums_tags=[self.nums_tags], batch_size=self.real_batches[i])
+                                                  transitions=[self.transition_char], nums_tags=[self.nums_tags],
+                                                  batch_size=self.real_batches[i])
                 loss.append(bucket_loss)
         else:
             loss_function = losses.sparse_cross_entropy
@@ -245,13 +248,15 @@ class Model(object):
             new_emb = tf.stack(toolbox.get_new_embeddings(new_chars, emb_dim, emb_path))
             n_emb_sh = new_emb.get_shape().as_list()
             if len(n_emb_sh) > 1:
-                new_emb_weights = tf.concat(axis=0, values=[old_emb_weights[:len(char2idx) - len(new_chars)], new_emb, old_emb_weights[len(char2idx):]])
+                new_emb_weights = tf.concat(axis=0, values=[old_emb_weights[:len(char2idx) - len(new_chars)], new_emb,
+                                                            old_emb_weights[len(char2idx):]])
                 if new_emb_weights.get_shape().as_list()[0] > emb_len:
                     new_emb_weights = new_emb_weights[:emb_len]
                 assign_op = old_emb_weights.assign(new_emb_weights)
                 self.updates.append(assign_op)
 
     def run_updates(self, sess, weight_path):
+        weight_path = weight_path.replace('//', '/')
         self.saver.restore(sess, weight_path)
         for op in self.updates:
             sess.run(op)
@@ -272,8 +277,8 @@ class Model(object):
         out = out[0].replace(' ', '  ')
         return out
 
-    def train(self, t_x, t_y, v_x, v_y_raw, v_y_gold, idx2tag, idx2char, unk_chars, trans_dict, sess, epochs, trained_model,
-              transducer=None, lr=0.05, decay=0.05, decay_step=1, sent_seg=False, outpath=None):
+    def train(self, t_x, t_y, v_x, v_y_raw, v_y_gold, idx2tag, idx2char, unk_chars, trans_dict, sess, epochs,
+              trained_model, transducer=None, lr=0.05, decay=0.05, decay_step=1, sent_seg=False, outpath=None):
         lr_r = lr
 
         best_epoch = 0
@@ -317,14 +322,16 @@ class Model(object):
                 real_batch_size = self.real_batches[idx]
                 model = self.input_v[idx] + self.output_[idx]
                 Batch.train(sess=sess[0], model=model, batch_size=real_batch_size, config=self.train_step[idx],
-                            lr=self.l_rate, lrv=lr_r, dr=self.drop_out, drv=self.drop_out_v, data=list(sample), verbose=False)
+                            lr=self.l_rate, lrv=lr_r, dr=self.drop_out, drv=self.drop_out_v, data=list(sample),
+                            verbose=False)
 
             predictions = []
 
             #for v_b_x in zip(*v_x):
             c_len = len(v_x[0][0])
             idx = self.bucket_dit[c_len]
-            b_prediction = self.predict(data=v_x, sess=sess, model=self.input_v[idx] + self.output[idx], index=idx, argmax=True, batch_size=200)
+            b_prediction = self.predict(data=v_x, sess=sess, model=self.input_v[idx] + self.output[idx], index=idx,
+                                        argmax=True, batch_size=200)
             b_prediction = toolbox.decode_tags(b_prediction, idx2tag)
             predictions.append(b_prediction)
 
@@ -383,15 +390,17 @@ class Model(object):
             print 'Best Recall: %f\n' % best_score[1]
         print 'Best epoch: %d' % best_epoch
 
-    def test(self, t_x, t_y_raw, t_y_gold, idx2tag, idx2char, unk_chars, trans_dict, sess, transducer, ensemble=None,
-             batch_size=100, sent_seg=False, bias=-1, outpath=None):
+    def test(self, t_x, t_y_raw, t_y_gold, idx2tag, idx2char, unk_chars, sub_dict, trans_dict, sess, transducer,
+             ensemble=None, batch_size=100, sent_seg=False, bias=-1, outpath=None, trans_type='mix'):
 
         chars = toolbox.decode_chars(t_x[0], idx2char)
         gold_out = t_y_gold
 
         for i in range(len(t_x[0])):
             for j, n in enumerate(t_x[0][i]):
-                if n in unk_chars:
+                if n in sub_dict:
+                    t_x[0][i][j] = sub_dict[n]
+                elif n in unk_chars:
                     t_x[0][i][j] = 1
 
         transducer_dict = None
@@ -417,7 +426,8 @@ class Model(object):
         if self.is_space == 'sea':
             prediction_out, raw_out = toolbox.generate_output_sea(chars, predictions)
         else:
-            prediction_out, raw_out = toolbox.generate_output(chars, predictions, trans_dict, transducer_dict)
+            prediction_out, raw_out = toolbox.generate_output(chars, predictions, trans_dict, transducer_dict,
+                                                              trans_type=trans_type)
 
         if sent_seg:
             scores = evaluation.evaluator(prediction_out, gold_out, raw_out, t_y_raw)
@@ -446,14 +456,16 @@ class Model(object):
             print 'F score: %f' % scores[2]
             print 'True negative rate: %f' % scores[3]
 
-    def tag(self, r_x, r_x_raw, idx2tag, idx2char, unk_chars, trans_dict, sess, transducer, ensemble=None, batch_size=100,
-            outpath=None, sent_seg=False, seg_large=False, form='conll'):
+    def tag(self, r_x, r_x_raw, idx2tag, idx2char, unk_chars, sub_dict, trans_dict, sess, transducer, ensemble=None,
+            batch_size=100, outpath=None, sent_seg=False, seg_large=False, form='conll'):
 
         chars = toolbox.decode_chars(r_x[0], idx2char)
 
         for i in range(len(r_x[0])):
             for j, n in enumerate(r_x[0][i]):
-                if n in unk_chars:
+                if n in sub_dict:
+                    r_x[0][i][j] = sub_dict[n]
+                elif n in unk_chars:
                     r_x[0][i][j] = 1
 
         c_len = len(r_x[0][0])
@@ -469,7 +481,7 @@ class Model(object):
                 return self.define_transducer_dict(trans_str, char2idx, sess[-1], transducer)
 
         prediction = self.predict(data=r_x, sess=sess, model=self.input_v[idx] + self.output[idx], index=idx,
-                                    argmax=True, batch_size=real_batch, ensemble=ensemble)
+                                  argmax=True, batch_size=real_batch, ensemble=ensemble)
 
         predictions = toolbox.decode_tags(prediction, idx2tag)
 
@@ -477,7 +489,8 @@ class Model(object):
             prediction_out, raw_out = toolbox.generate_output_sea(chars, predictions)
             multi_out = prediction_out
         else:
-            prediction_out, raw_out, multi_out = toolbox.generate_output(chars, predictions, trans_dict, transducer_dict, multi_tok=True)
+            prediction_out, raw_out, multi_out = toolbox.generate_output(chars, predictions, trans_dict,
+                                                                         transducer_dict, multi_tok=True)
 
         pre_out = []
         mut_out = []
@@ -500,11 +513,12 @@ class Model(object):
     def predict(self, data, sess, model, index=None, argmax=True, batch_size=100, ensemble=None, verbose=False):
         if self.crf:
             assert index is not None
-            predictions = Batch.predict(sess=sess[0], decode_sess=sess[1], model=model, transitions=[self.transition_char], crf=self.crf,
-                                        scores=self.scores[index], decode_holders=self.decode_holders[index], batch_size=batch_size,
+            predictions = Batch.predict(sess=sess[0], decode_sess=sess[1], model=model,
+                                        transitions=[self.transition_char], crf=self.crf, scores=self.scores[index],
+                                        decode_holders=self.decode_holders[index], batch_size=batch_size,
                                         data=data, dr=self.drop_out, ensemble=ensemble, verbose=verbose)
         else:
-            predictions = Batch.predict(sess=sess[0], model=model, crf=self.crf, argmax=argmax, batch_size=batch_size, data=data,
-                                        dr=self.drop_out, ensemble=ensemble, verbose=verbose)
+            predictions = Batch.predict(sess=sess[0], model=model, crf=self.crf, argmax=argmax, batch_size=batch_size,
+                                        data=data, dr=self.drop_out, ensemble=ensemble, verbose=verbose)
         return predictions
 
