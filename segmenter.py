@@ -35,19 +35,19 @@ parser.add_argument('-sl', '--sent_limit', default=300, type=int, help='Long sen
 
 parser.add_argument('-tg', '--tags', default='BIES', help='Boundary Tagging, default is BIES')
 
-parser.add_argument('-ed', '--embeddings_dimension', default=50, type=int, help='Dimension of the embeddings')
+parser.add_argument('-ed', '--emb_dimension', default=50, type=int, help='Dimension of the embeddings')
 parser.add_argument('-emb', '--embeddings', default=None, help='Path and name of pre-trained char embeddings')
 
 parser.add_argument('-ng', '--ngram', default=1, type=int, help='Using ngrams')
 
-parser.add_argument('-gru', '--gru', default=False, help='Use GRU as the recurrent cell', action='store_true')
+parser.add_argument('-cell', '--cell', default='gru', help='Use GRU as the recurrent cell', choices=['gru', 'lstm'])
 parser.add_argument('-rnn', '--rnn_cell_dimension', default=200, type=int, help='Dimension of the RNN cells')
 parser.add_argument('-layer', '--rnn_layer_number', default=1, type=int, help='Numbers of the RNN layers')
 
 parser.add_argument('-dr', '--dropout_rate', default=0.5, type=float, help='Dropout rate')
 
 parser.add_argument('-iter', '--epochs', default=30, type=int, help='Numbers of epochs')
-parser.add_argument('-iter_trans', '--epochs_trans', default=50, type=int, help='Numbers of epochs for training the transducer')
+parser.add_argument('-iter_trans', '--epochs_trans', default=50, type=int, help='Epochs for training the transducer')
 
 parser.add_argument('-op', '--optimizer', default='adagrad', help='Optimizer')
 parser.add_argument('-lr', '--learning_rate', default=0.2, type=float, help='Initial learning rate')
@@ -55,7 +55,7 @@ parser.add_argument('-lr_trans', '--learning_rate_trans', default=0.3, type=floa
 parser.add_argument('-ld', '--decay_rate', default=0.05, type=float, help='Learning rate decay')
 parser.add_argument('-mt', '--momentum', default=None, type=float, help='Momentum')
 
-parser.add_argument('-cp', '--clipping', default=False, action='store_true', help='Apply Gradient Clipping')
+parser.add_argument('-cp', '--clipping', default=True, action='store_force', help='Apply Gradient Clipping')
 
 parser.add_argument("-tb","--train_batch", help="Training batch size", default=10, type=int)
 parser.add_argument("-eb","--test_batch", help="Testing batch size", default=500, type=int)
@@ -75,16 +75,24 @@ parser.add_argument('-sgl', '--segment_large', default=False, help='Segment (ver
 
 parser.add_argument('-lgs', '--large_size', default=10000, type=int, help='Segment (very) large file')
 
-parser.add_argument('-ot', '--only_tokenised', default=False, help='Only output the tokenised file when segment (very) large file',
-                    action='store_true')
+parser.add_argument('-ot', '--only_tokenised', default=False,
+                    help='Only output the tokenised file when segment (very) large file', action='store_true')
 
 parser.add_argument('-ts', '--train_size', default=-1, type=int, help='No. of sentences used for training')
 
-parser.add_argument('-rs', '--reset', default=False, help='Delete and re-initialise the intermediate files', action='store_true')
+parser.add_argument('-rs', '--reset', default=False, help='Delete and re-initialise the intermediate files',
+                    action='store_true')
+parser.add_argument('-rst', '--reset_trans', default=False, help='Retrain the transducers', action='store_true')
 
 parser.add_argument('-isp', '--ignore_space', default=False, help='Ignore space delimiters', action='store_true')
+parser.add_argument('-imt', '--ignore_mwt', default=False, help='Ignore multi-word tokens to be transcribed',
+                    action='store_true')
 
-parser.add_argument('-sb', '--segmentation_bias', default=-1, type=float, help='Add segmentation bias to under(over)-splitting')
+parser.add_argument('-sb', '--segmentation_bias', default=-1, type=float,
+                    help='Add segmentation bias to under(over)-splitting')
+
+parser.add_argument('-tt', '--transduction_type', default='mix', choices=['mix', 'dict', 'trans', 'none'],
+                    help='Different ways of transducing the non-segmental MWTs')
 
 args = parser.parse_args()
 
@@ -102,7 +110,7 @@ if args.action == 'train':
     f_names = os.listdir(path)
     if train_file is None or dev_file is None:
         for f_n in f_names:
-            if 'ud-train.conllu' in f_n or 'training.segd' in f_n:
+            if 'ud-train.conllu' in f_n or 'training.segd' in f_n or 'ud-sample.conllu' in f_n:
                 train_file = f_n
             elif 'ud-dev.conllu' in f_n or 'development.segd' in f_n:
                 dev_file = f_n
@@ -110,6 +118,7 @@ if args.action == 'train':
     is_space = True
     if 'Chinese' in path or 'Japanese' in path or args.format == 'mlp2':
         is_space = False
+
     if args.sea:
         is_space = 'sea'
     if args.reset or not os.path.isfile(path + '/raw_train.txt') or not os.path.isfile(path + '/raw_dev.txt'):
@@ -142,17 +151,20 @@ if args.action == 'train':
             sents_dev = reader.gold(path + '/' + dev_file, form=args.format, is_space=is_space)
 
         if is_space != 'sea':
-            toolbox.raw2tags(raws_train, sents_train, path, 'tag_train.txt', ignore_space=args.ignore_space, reset=args.reset, tag_scheme=args.tags)
+            toolbox.raw2tags(raws_train, sents_train, path, 'tag_train.txt', ignore_space=args.ignore_space,
+                             reset=args.reset, tag_scheme=args.tags, ignore_mwt=args.ignore_mwt)
             toolbox.raw2tags(raws_dev, sents_dev, path, 'tag_dev.txt', creat_dict=False, gold_path='tag_dev_gold.txt',
-                             ignore_space=args.ignore_space, tag_scheme=args.tags)
+                             ignore_space=args.ignore_space, tag_scheme=args.tags, ignore_mwt=args.ignore_mwt)
         else:
-            toolbox.raw2tags_sea(raws_train, sents_train, path, 'tag_train.txt', tag_scheme=args.tags)
-            toolbox.raw2tags_sea(raws_dev, sents_dev, path, 'tag_dev.txt', gold_path='tag_dev_gold.txt', tag_scheme=args.tags)
+            toolbox.raw2tags_sea(raws_train, sents_train, path, 'tag_train.txt', reset=args.reset, tag_scheme=args.tags)
+            toolbox.raw2tags_sea(raws_dev, sents_dev, path, 'tag_dev.txt', gold_path='tag_dev_gold.txt',
+                                 tag_scheme=args.tags)
 
     if args.reset or not os.path.isfile(path + '/chars.txt'):
         toolbox.get_chars(path, ['raw_train.txt', 'raw_dev.txt'], sea=is_space)
 
-    char2idx, unk_chars, idx2char, tag2idx, idx2tag, trans_dict = toolbox.get_dicts(path, args.sent_seg, args.tags, args.crf)
+    char2idx, unk_chars_idx, idx2char, tag2idx, idx2tag, trans_dict = toolbox.get_dicts(path, args.sent_seg, args.tags,
+                                                                                        args.crf)
 
     if args.embeddings is not None:
         print 'Reading embeddings...'
@@ -161,17 +173,20 @@ if args.action == 'train':
             toolbox.get_sample_embedding(path, args.embeddings, char2idx)
         emb_dim, emb, valid_chars = toolbox.read_sample_embedding(path, short_emb, char2idx)
         for vch in valid_chars:
-            if vch in unk_chars:
-                unk_chars.remove(vch)
+            if char2idx[vch] in unk_chars_idx:
+                unk_chars_idx.remove(char2idx[vch])
     else:
-        emb_dim = args.embeddings_dimension
+        emb_dim = args.emb_dimension
         emb = None
 
-    train_x, train_y, max_len_train = toolbox.get_input_vec(path, 'tag_train.txt', char2idx, tag2idx, limit=args.sent_limit, sent_seg=args.sent_seg,
-                                                            is_space=is_space, train_size=args.train_size, ignore_space=args.ignore_space)
+    train_x, train_y, max_len_train = toolbox.get_input_vec(path, 'tag_train.txt', char2idx, tag2idx,
+                                                            limit=args.sent_limit, sent_seg=args.sent_seg,
+                                                            is_space=is_space, train_size=args.train_size,
+                                                            ignore_space=args.ignore_space)
 
-    dev_x, max_len_dev = toolbox.get_input_vec_raw(path, 'raw_dev.txt', char2idx, limit=args.sent_limit, sent_seg=args.sent_seg,
-                                                   is_space=is_space, ignore_space=args.ignore_space)
+    dev_x, max_len_dev = toolbox.get_input_vec_raw(path, 'raw_dev.txt', char2idx, limit=args.sent_limit,
+                                                   sent_seg=args.sent_seg, is_space=is_space,
+                                                   ignore_space=args.ignore_space)
     if args.sent_seg:
         print 'Joint sentence segmentation...'
     else:
@@ -187,10 +202,10 @@ if args.action == 'train':
 
     if args.ngram > 1:
         gram2idx = toolbox.get_ngram_dic(ngram)
-        train_gram = toolbox.get_gram_vec(path, 'tag_train.txt', gram2idx, limit=args.sent_limit, sent_seg=args.sent_seg,
+        train_gram = toolbox.get_gram_vec(path, 'tag_train.txt', gram2idx, limit=args.sent_limit,sent_seg=args.sent_seg,
                                           is_space=is_space, ignore_space=args.ignore_space)
-        dev_gram = toolbox.get_gram_vec(path, 'raw_dev.txt', gram2idx, is_raw=True, limit=args.sent_limit, sent_seg=args.sent_seg,
-                                        is_space=is_space, ignore_space=args.ignore_space)
+        dev_gram = toolbox.get_gram_vec(path, 'raw_dev.txt', gram2idx, is_raw=True, limit=args.sent_limit,
+                                        sent_seg=args.sent_seg, is_space=is_space, ignore_space=args.ignore_space)
         train_x += train_gram
         dev_x += dev_gram
         nums_grams = []
@@ -216,7 +231,7 @@ if args.action == 'train':
     trans_model = None
     trans_init = None
 
-    if len(trans_dict) > 200:
+    if len(trans_dict) > 200 and not args.ignore_mwt:
         transducer = toolbox.get_dict_vec(trans_dict, char2idx)
     t = time()
 
@@ -228,7 +243,7 @@ if args.action == 'train':
             with tf.variable_scope("transducer") as scope:
                 trans_model = Seq2seq(path + '/' + model_file + '_transducer')
                 print 'Defining transducer...'
-                trans_model.define(char_num=len(char2idx), rnn_dim=args.rnn_cell_dimension, emb_dim=args.embeddings_dimension,
+                trans_model.define(char_num=len(char2idx), rnn_dim=args.rnn_cell_dimension, emb_dim=args.emb_dimension,
                                    max_x=len(transducer[0][0]), max_y=len(transducer[1][0]))
             trans_init = tf.global_variables_initializer()
         transducer_graph.finalize()
@@ -242,7 +257,7 @@ if args.action == 'train':
                           is_space=is_space, emb_path=args.embeddings, tag_scheme=args.tags)
 
             model.main_graph(trained_model=path + '/' + model_file + '_model', scope=scope,
-                             emb_dim=emb_dim, gru=args.gru, rnn_dim=args.rnn_cell_dimension,
+                             emb_dim=emb_dim, cell=args.cell, rnn_dim=args.rnn_cell_dimension,
                              rnn_num=args.rnn_layer_number, drop_out=args.dropout_rate, emb=emb)
             t = time()
 
@@ -272,12 +287,12 @@ if args.action == 'train':
     with tf.device(gpu_config):
 
         if transducer is not None:
-            print 'Training transducer...'
+            print 'Building transducer...'
             t = time()
             trans_sess = tf.Session(config=config, graph=transducer_graph)
             trans_sess.run(trans_init)
             trans_model.train(transducer[0], transducer[1], transducer[2], transducer[3], args.learning_rate_trans,
-                              char2idx, trans_sess, args.epochs_trans, batch_size=10)
+                              char2idx, trans_sess, args.epochs_trans, batch_size=10, reset=args.reset_trans)
             sess.append(trans_sess)
             print 'Done. Time consumed: %d seconds' % int(time() - t)
             print 'Training the main segmenter..'
@@ -286,9 +301,9 @@ if args.action == 'train':
         print 'Done. Time consumed: %d seconds' % int(time() - t)
         t = time()
         b_dev_raw = [line.strip() for line in codecs.open(path + '/raw_dev.txt', 'r', encoding='utf-8')]
-        model.train(b_train_x, b_train_y, b_dev_x, b_dev_raw, b_dev_y_gold, idx2tag, idx2char, unk_chars, trans_dict, sess, args.epochs,
-                    path + '/' + model_file + '_weights', transducer=trans_model, lr=args.learning_rate,
-                    decay=args.decay_rate, sent_seg=args.sent_seg, outpath=args.output_path)
+        model.train(b_train_x, b_train_y, b_dev_x, b_dev_raw, b_dev_y_gold, idx2tag, idx2char, unk_chars_idx, trans_dict,
+                    sess, args.epochs, path + '/' + model_file + '_weights', transducer=trans_model,
+                    lr=args.learning_rate, decay=args.decay_rate, sent_seg=args.sent_seg, outpath=args.output_path)
 
 else:
 
@@ -300,11 +315,13 @@ else:
     model_file = args.model
 
     if args.ensemble:
-        if not os.path.isfile(path + '/' + model_file + '_1_model') or not os.path.isfile(path + '/' + model_file + '_1_weights.index'):
+        if not os.path.isfile(path + '/' + model_file + '_1_model') or not os.path.isfile(path + '/' + model_file +
+                                                                                          '_1_weights.index'):
             raise Exception('Not any model file or weights file under the name of ' + model_file + '.')
         fin = open(path + '/' + model_file + '_1_model', 'rb')
     else:
-        if not os.path.isfile(path + '/' + model_file + '_model') or not os.path.isfile(path + '/' + model_file + '_weights.index'):
+        if not os.path.isfile(path + '/' + model_file + '_model') or not os.path.isfile(path + '/' + model_file +
+                                                                                        '_weights.index'):
             raise Exception('No model file or weights file under the name of ' + model_file + '.')
         fin = open(path + '/' + model_file + '_model', 'rb')
 
@@ -317,7 +334,7 @@ else:
     nums_tags = param_dic['nums_tags']
     crf = param_dic['crf']
     emb_dim = param_dic['emb_dim']
-    gru = param_dic['gru']
+    cell = param_dic['cell']
     rnn_dim = param_dic['rnn_dim']
     rnn_num = param_dic['rnn_num']
     drop_out = param_dic['drop_out']
@@ -336,7 +353,7 @@ else:
     if nums_ngrams is not None:
         ngram = len(nums_ngrams) + 1
 
-    char2idx, unk_chars, idx2char, tag2idx, idx2tag, trans_dict = toolbox.get_dicts(path, sent_seg, tag_scheme, crf)
+    char2idx, unk_chars_idx, idx2char, tag2idx, idx2tag, trans_dict = toolbox.get_dicts(path, sent_seg, tag_scheme, crf)
 
     trans_char_num = len(char2idx)
 
@@ -346,6 +363,8 @@ else:
     new_chars, new_grams = None, None
 
     test_x, test_y, raw_x, test_y_gold = None, None, None, None
+
+    sub_dict = None
 
     max_step = None
 
@@ -371,7 +390,8 @@ else:
         reader.get_raw(path, test_file, 'raw_test.txt', cat, form=args.format)
 
         raws_test = reader.raw(path + '/raw_test.txt')
-        test_y_gold = reader.test_gold(path + '/' + test_file, form=args.format, is_space=is_space)
+        test_y_gold = reader.test_gold(path + '/' + test_file, form=args.format, is_space=is_space,
+                                       ignore_mwt=args.ignore_mwt)
 
         new_chars = toolbox.get_new_chars(path + '/raw_test.txt', char2idx, is_space)
 
@@ -380,10 +400,11 @@ else:
         else:
             valid_chars = None
 
-        char2idx, idx2char, unk_chars = toolbox.update_char_dict(char2idx, new_chars, unk_chars, valid_chars)
+        char2idx, idx2char, unk_chars_idx, sub_dict = toolbox.update_char_dict(char2idx, new_chars, unk_chars_idx, valid_chars)
 
         test_x, max_len_test = toolbox.get_input_vec_raw(path, 'raw_test.txt', char2idx, limit=args.sent_limit + 100,
-                                                         sent_seg=sent_seg, is_space=is_space, ignore_space=args.ignore_space)
+                                                         sent_seg=sent_seg, is_space=is_space,
+                                                         ignore_space=args.ignore_space)
 
         max_step = max_len_test
 
@@ -414,15 +435,17 @@ else:
         else:
             valid_chars = None
 
-        char2idx, idx2char, unk_chars = toolbox.update_char_dict(char2idx, new_chars, unk_chars, valid_chars)
+        char2idx, idx2char, unk_chars_idx, sub_dict = toolbox.update_char_dict(char2idx, new_chars, unk_chars_idx,
+                                                                               valid_chars)
 
         if not args.segment_large:
 
             if sent_seg:
-                raw_x, raw_len = toolbox.get_input_vec_tag(None, raw_file, char2idx, limit=args.sent_limit + 100, is_space=is_space)
+                raw_x, raw_len = toolbox.get_input_vec_tag(None, raw_file, char2idx, limit=args.sent_limit + 100,
+                                                           is_space=is_space)
             else:
-                raw_x, raw_len = toolbox.get_input_vec_raw(None, raw_file, char2idx, limit=args.sent_limit + 100, sent_seg=sent_seg, is_space=is_space)
-
+                raw_x, raw_len = toolbox.get_input_vec_raw(None, raw_file, char2idx, limit=args.sent_limit + 100,
+                                                           sent_seg=sent_seg, is_space=is_space)
 
             if sent_seg:
                 print 'Joint sentence segmentation...'
@@ -441,7 +464,8 @@ else:
 
             if not args.segment_large:
                 if sent_seg:
-                    raw_grams = toolbox.get_gram_vec_tag(None, raw_file, gram2idx, limit=args.sent_limit + 100, is_space=is_space)
+                    raw_grams = toolbox.get_gram_vec_tag(None, raw_file, gram2idx, limit=args.sent_limit + 100,
+                                                         is_space=is_space)
                 else:
                     raw_grams = toolbox.get_gram_vec(None, raw_file, gram2idx, is_raw=True, limit=args.sent_limit + 100,
                                                      sent_seg=sent_seg, is_space=is_space)
@@ -494,7 +518,7 @@ else:
             model = Model(nums_chars=nums_chars, nums_tags=nums_tags, buckets_char=[max_step], counts=[200],
                           crf=crf, ngram=nums_ngrams, batch_size=args.tag_batch, is_space=is_space)
 
-            model.main_graph(trained_model=None, scope=scope, emb_dim=emb_dim, gru=gru,
+            model.main_graph(trained_model=None, scope=scope, emb_dim=emb_dim, cell=cell,
                              rnn_dim=rnn_dim, rnn_num=rnn_num, drop_out=drop_out)
 
         model.define_updates(new_chars=new_chars, emb_path=emb_path, char2idx=char2idx)
@@ -547,13 +571,16 @@ else:
             trans_sess = tf.Session(config=config, graph=transducer_graph)
             trans_sess.run(trans_init)
             if os.path.isfile(path + '/' + model_file + '_transducer_weights'):
-                trans_model.saver.restore(trans_sess, path + '/' + model_file + '_transducer_weights')
+                trans_weight_path = path + '/' + model_file + '_transducer_weights'
+                trans_weight_path = trans_weight_path.replace('//', '/')
+                trans_model.saver.restore(trans_sess, trans_weight_path)
             sess.append(trans_sess)
 
         if args.action == 'test':
             test_y_raw = [line.strip() for line in codecs.open(path + '/raw_test.txt', 'rb', encoding='utf-8')]
-            model.test(test_x, test_y_raw, test_y_gold, idx2tag, idx2char, unk_chars, trans_dict, sess, transducer=trans_model,
-                       ensemble=args.ensemble, batch_size=args.test_batch, sent_seg=sent_seg, bias=args.segmentation_bias, outpath=args.output_path)
+            model.test(test_x, test_y_raw, test_y_gold, idx2tag, idx2char, unk_chars_idx, sub_dict, trans_dict, sess,
+                       transducer=trans_model, ensemble=args.ensemble, batch_size=args.test_batch, sent_seg=sent_seg,
+                       bias=args.segmentation_bias, outpath=args.output_path, trans_type=args.transduction_type)
 
         if args.action == 'tag':
 
@@ -561,12 +588,11 @@ else:
                 raw_sents = []
                 for line in codecs.open(raw_file, 'rb', encoding='utf-8'):
                     line = line.strip()
-                    #segs = line.split()
-                    #line = ' '.join(segs)
                     if len(line) > 0:
                         raw_sents.append(line)
-                model.tag(raw_x, raw_sents, idx2tag, idx2char, unk_chars, trans_dict, sess, transducer=trans_model, outpath=args.output_path,
-                          ensemble=args.ensemble, batch_size=args.tag_batch, sent_seg=sent_seg, seg_large=args.segment_large, form=args.format)
+                model.tag(raw_x, raw_sents, idx2tag, idx2char, unk_chars_idx, sub_dict, trans_dict, sess,
+                          transducer=trans_model, outpath=args.output_path, ensemble=args.ensemble,
+                          batch_size=args.tag_batch, sent_seg=sent_seg, seg_large=args.segment_large, form=args.format)
             else:
                 count = 0
                 c_line = 0
@@ -586,25 +612,29 @@ else:
                             print count
                             if args.sent_seg:
                                 raw_x, _ = toolbox.get_input_vec_tag(None, None, char2idx, lines=lines,
-                                                                           limit=args.sent_limit, is_space=is_space)
+                                                                     limit=args.sent_limit, is_space=is_space)
                             else:
                                 raw_x, _ = toolbox.get_input_vec_raw(None, None, char2idx, lines=lines,
-                                                                           limit=args.sent_limit, sent_seg=sent_seg,
-                                                                           is_space=is_space)
+                                                                     limit=args.sent_limit, sent_seg=sent_seg,
+                                                                     is_space=is_space)
                             if ngram > 1:
                                 if sent_seg:
-                                    raw_grams = toolbox.get_gram_vec_tag(None, None, gram2idx, lines=lines, limit=args.sent_limit, is_space=is_space)
+                                    raw_grams = toolbox.get_gram_vec_tag(None, None, gram2idx, lines=lines,
+                                                                         limit=args.sent_limit, is_space=is_space)
                                 else:
-                                    raw_grams = toolbox.get_gram_vec(None, None, gram2idx, lines=lines, is_raw=True, limit=args.sent_limit,
-                                                                     sent_seg=sent_seg, is_space=is_space)
+                                    raw_grams = toolbox.get_gram_vec(None, None, gram2idx, lines=lines, is_raw=True,
+                                                                     limit=args.sent_limit, sent_seg=sent_seg,
+                                                                     is_space=is_space)
                                 raw_x += raw_grams
 
                             for k in range(len(raw_x)):
                                 raw_x[k] = toolbox.pad_zeros(raw_x[k], max_step)
 
-                            predition, multi = model.tag(raw_x, lines, idx2tag, idx2char, unk_chars, trans_dict, sess, transducer=trans_model,
-                                                         outpath=args.output_path, ensemble=args.ensemble, batch_size=args.tag_batch,
-                                                         sent_seg=sent_seg, seg_large=args.segment_large, form=args.format)
+                            predition, multi = model.tag(raw_x, lines, idx2tag, idx2char, unk_chars_idx, sub_dict,
+                                                         trans_dict, sess, transducer=trans_model,
+                                                         outpath=args.output_path, ensemble=args.ensemble,
+                                                         batch_size=args.tag_batch, sent_seg=sent_seg,
+                                                         seg_large=args.segment_large, form=args.format)
 
                             if args.only_tokenised:
                                 for l_out in predition:
@@ -622,7 +652,8 @@ else:
                                         for tg in tgs:
                                             if '!#!' in tg:
                                                 segs = tg.split('!#!')
-                                                l_writer.write(str(idx) + '-' + str(int(segs[1]) + idx - 1) + '\t' + segs[0] + pl + '\n')
+                                                l_writer.write(str(idx) + '-' + str(int(segs[1]) + idx - 1) + '\t' +
+                                                               segs[0] + pl + '\n')
                                             else:
                                                 l_writer.write(str(idx) + '\t' + tg + pl + '\n')
                                                 idx += 1
@@ -639,19 +670,22 @@ else:
                                                                       is_space=is_space)
                         if ngram > 1:
                             if sent_seg:
-                                raw_grams = toolbox.get_gram_vec_tag(None, None, gram2idx, lines=lines, limit=args.sent_limit,
-                                                                          is_space=is_space)
+                                raw_grams = toolbox.get_gram_vec_tag(None, None, gram2idx, lines=lines,
+                                                                     limit=args.sent_limit, is_space=is_space)
                             else:
-                                raw_grams = toolbox.get_gram_vec(None, None, gram2idx, lines=lines, is_raw=True, limit=args.sent_limit,
-                                                                sent_seg=sent_seg, is_space=is_space)
+                                raw_grams = toolbox.get_gram_vec(None, None, gram2idx, lines=lines, is_raw=True,
+                                                                 limit=args.sent_limit, sent_seg=sent_seg,
+                                                                 is_space=is_space)
                             raw_x += raw_grams
 
                         for k in range(len(raw_x)):
                             raw_x[k] = toolbox.pad_zeros(raw_x[k], max_step)
 
-                        prediction, multi = model.tag(raw_x, lines, idx2tag, idx2char, unk_chars, trans_dict, sess,
-                                                     transducer=trans_model, outpath=args.output_path, ensemble=args.ensemble,
-                                                     batch_size=args.tag_batch, sent_seg=sent_seg, seg_large=args.segment_large, form=args.format)
+                        prediction, multi = model.tag(raw_x, lines, idx2tag, idx2char, unk_chars_idx, sub_dict,
+                                                      trans_dict, sess, transducer=trans_model,
+                                                      outpath=args.output_path, ensemble=args.ensemble,
+                                                      batch_size=args.tag_batch, sent_seg=sent_seg,
+                                                      seg_large=args.segment_large, form=args.format)
 
                         if args.only_tokenised:
                             for l_out in prediction:
@@ -669,7 +703,8 @@ else:
                                     for tg in tgs:
                                         if '!#!' in tg:
                                             segs = tg.split('!#!')
-                                            l_writer.write(str(idx) + '-' + str(int(segs[1]) + idx - 1) + '\t' + segs[0] + pl + '\n')
+                                            l_writer.write(str(idx) + '-' + str(int(segs[1]) + idx - 1) + '\t' +
+                                                           segs[0] + pl + '\n')
                                         else:
                                             l_writer.write(str(idx) + '\t' + tg + pl + '\n')
                                             idx += 1
