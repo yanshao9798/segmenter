@@ -3,6 +3,7 @@ import tensorflow as tf
 import numpy as np
 import math
 
+
 class HiddenLayer(object):
     """
     Hidden layer with or without bias.
@@ -26,11 +27,13 @@ class HiddenLayer(object):
         if activation == 'linear':
             self.activation = None
         elif activation == 'tanh':
-            self.activation = tf.nn.tanh
+            self.activation = tf.tanh
         elif activation == 'sigmoid':
-            self.activation = tf.nn.sigmoid
+            self.activation = tf.sigmoid
         elif activation == 'softmax':
             self.activation = tf.nn.softmax
+        elif activation == 'relu':
+            self.activation = tf.nn.relu
         elif activation is not None:
             raise Exception('Unknown activation function: ' % activation)
 
@@ -50,11 +53,13 @@ class HiddenLayer(object):
         :param input_t:
         :return:
         """
-        self.input = input_t
-        self.linear = tf.matmul(self.input, self.weights)
+        input_shape = input_t.get_shape().as_list()
+        input_t = tf.reshape(input_t, [-1, input_shape[-1]])
+        linear = tf.matmul(input_t, self.weights)
+        self.linear = tf.reshape(linear, [-1] + input_shape[1:-1] + [self.output_dim])
         if self.is_bias:
             self.linear += self.bias
-        if self.activation == None:
+        if self.activation is None:
             self.output = self.linear
         else:
             self.output = self.activation(self.linear)
@@ -82,8 +87,8 @@ class EmbeddingLayer(object):
         # Generate random embeddings or read pre-trained embeddings
         rand_uniform_init = tf.contrib.layers.xavier_initializer()
         if self.weights is None:
-            #self.embeddings = tf.Variable(tf.random_uniform([self.input_dim, self.output_dim], -math.sqrt(3/self.output_dim), math.sqrt(3/self.output_dim)), trainable=self.trainable, name=self.name + '_rand_emb')
-            self.embeddings = tf.get_variable(self.name + '_emb', [self.input_dim, self.output_dim], initializer=rand_uniform_init, trainable=self.trainable)
+            self.embeddings = tf.get_variable(self.name + '_emb', [self.input_dim, self.output_dim],
+                                              initializer=rand_uniform_init, trainable=self.trainable)
         elif is_variable:
             self.embeddings = weights
         else:
@@ -121,7 +126,8 @@ class Convolution(object):
         initial = tf.constant(0.1, shape=shape, name=name)
         return tf.Variable(initial)
 
-    def __init__(self, conv_width, in_channels, out_channels, stride=1, dim=2, padding='SAME', name='convolutional_layer'):
+    def __init__(self, conv_width, in_channels, out_channels, stride=1, dim=2, padding='SAME',
+                 name='convolutional_layer'):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.dim = dim
@@ -133,9 +139,11 @@ class Convolution(object):
         self.name = name
         self.conv_width = conv_width
         if dim == 1:
-            self.w_conv = self.weight_variable([self.conv_width, self.in_channels, self.out_channels], name=self.name + '_w')
+            self.w_conv = self.weight_variable([self.conv_width, self.in_channels, self.out_channels],
+                                               name=self.name + '_w')
         else:
-            self.w_conv = self.weight_variable([self.conv_width, self.conv_width, self.in_channels, self.out_channels], name=self.name + '_w')
+            self.w_conv = self.weight_variable([self.conv_width, self.conv_width, self.in_channels, self.out_channels],
+                                               name=self.name + '_w')
         self.b_conv = self.bias_variable([self.out_channels], name=self.name + '_b')
 
     def conv2d(self, x, W):
@@ -187,7 +195,8 @@ class BiLSTM(object):
     """
     Bidirectional LSTM
     """
-    def __init__(self, cell_dim, nums_layers=1, p=0.5, fw_cell=None, bw_cell=None, state=False, name='biLSTM', scope=None):
+    def __init__(self, cell_dim, nums_layers=1, p=0.5, fw_cell=None, bw_cell=None, state=False, name='biLSTM',
+                 scope=None):
         """
         :param cell_dim:
         :param nums_steps:
@@ -222,7 +231,9 @@ class BiLSTM(object):
             self.lstm_cell_bw = tf.nn.rnn_cell.MultiRNNCell([self.lstm_cell_bw] * self.nums_layers)
         self.length = tf.reduce_sum(tf.sign(self.input_ids), axis=1)
         self.length = tf.cast(self.length, dtype=tf.int32)
-        int_states, final_states = tf.nn.bidirectional_dynamic_rnn(self.lstm_cell_fw, self.lstm_cell_bw, self.input, sequence_length=self.length, dtype=tf.float32, scope=self.scope)
+        int_states, final_states = tf.nn.bidirectional_dynamic_rnn(self.lstm_cell_fw, self.lstm_cell_bw, self.input,
+                                                                   sequence_length=self.length, dtype=tf.float32,
+                                                                   scope=self.scope)
         self.output = tf.concat(values=int_states, axis=2)
         if self.state:
             return self.output, final_states
@@ -289,7 +300,8 @@ class Forward(object):
         #e_vec = tf.cast(tf.pack(([0] + [small] * self.nums_tags) * self.batch_size), tf.float32)
         #e_vec = tf.reshape(e_vec, [self.batch_size, 1, -1])
         self.observations = tf.concat(axis=1, values=[b_vec, self.observations])
-        self.transitions = tf.reshape(tf.tile(self.transitions, [self.batch_size, 1]), [self.batch_size, self.nums_tags + 1, self.nums_tags + 1])
+        self.transitions = tf.reshape(tf.tile(self.transitions, [self.batch_size, 1]),
+                                      [self.batch_size, self.nums_tags + 1, self.nums_tags + 1])
         self.observations = tf.reshape(self.observations, [-1, self.nums_steps + 1, self.nums_tags + 1, 1])
         self.observations = tf.transpose(self.observations, [1, 0, 2, 3])
         previous = self.observations[0, :, :, :]
@@ -298,7 +310,7 @@ class Forward(object):
         alphas = [previous]
         for t in range(1, self.nums_steps + 1):
             previous = tf.reshape(previous, [-1, self.nums_tags + 1, 1])
-            current =  tf.reshape(self.observations[t,:, :, :], [-1, 1, self.nums_tags + 1])
+            current = tf.reshape(self.observations[t,:, :, :], [-1, 1, self.nums_tags + 1])
             alpha_t = previous + current + self.transitions
             if self.viterbi:
                 max_scores.append(tf.reduce_max(alpha_t, axis=1))
