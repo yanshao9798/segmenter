@@ -82,14 +82,7 @@ def crf_loss(y, y_, transitions, nums_tags, batch_size):
     tag_ids = tf.contrib.layers.one_hot_encoding(tag_ids, nums_tags)
     point_score = tf.reduce_sum(tag_scores * tag_ids, axis=2)
     point_score *= masks
-    #Save for future
-    #trans_score = tf.gather_nd(transitions, idx_tag_ids)
-    trans_sh = tf.stack(transitions.get_shape())
-    trans_sh = tf.cumprod(trans_sh, exclusive=True, reverse=True)
-    flat_tag_ids = tf.reduce_sum(trans_sh * idx_tag_ids, axis=2)
-    trans_score = tf.gather(tf.reshape(transitions, [-1]), flat_tag_ids)
-    ##
-    #extend_mask = tf.concat(1, [tf.ones([batch_size, 1]), masks])
+    trans_score = tf.gather_nd(transitions, idx_tag_ids)
     extend_mask = masks
     trans_score *= extend_mask
     target_path_score = tf.reduce_sum(point_score) + tf.reduce_sum(trans_score)
