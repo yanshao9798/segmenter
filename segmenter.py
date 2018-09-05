@@ -55,7 +55,7 @@ parser.add_argument('-lr_trans', '--learning_rate_trans', default=0.3, type=floa
 parser.add_argument('-ld', '--decay_rate', default=0.05, type=float, help='Learning rate decay')
 parser.add_argument('-mt', '--momentum', default=None, type=float, help='Momentum')
 
-parser.add_argument('-cp', '--clipping', default=True, action='store_force', help='Apply Gradient Clipping')
+parser.add_argument('-ncp', '--no_clipping', default=False, action='store_true', help='Do not apply gradient clipping')
 
 parser.add_argument("-tb","--train_batch", help="Training batch size", default=10, type=int)
 parser.add_argument("-eb","--test_batch", help="Testing batch size", default=500, type=int)
@@ -262,7 +262,7 @@ if args.action == 'train':
             t = time()
 
         model.config(optimizer=args.optimizer, decay=args.decay_rate, lr_v=args.learning_rate,
-                     momentum=args.momentum, clipping=args.clipping)
+                     momentum=args.momentum, clipping=not args.no_clipping)
         init = tf.global_variables_initializer()
 
         print 'Done. Time consumed: %d seconds' % int(time() - t)
